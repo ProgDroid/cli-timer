@@ -6,21 +6,34 @@ on:
 
 jobs:
   build:
-    name: Create release
+    name: Create ${{ matrix.config.target }} release
     if: github.repository_owner == 'progdroid'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - { os: ubuntu-latest, target: 'x86_64-unknown-linux-musl' }
+          - { os: windows-latest, target: 'x86_64-pc-windows-msvc' }
+        include:
+          - os: ubuntu-latest
+            packages: alsa-sys
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@master
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get -yq --no-install-suggests --no-install-recommends install ${{ matrix.packages }}
       - name: Compile and Release
         id: compile
         uses: rust-build/rust-build.action@v1.4.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          RUSTTARGET: x86_64-unknown-linux-musl
+          RUSTTARGET: ${{ matrix.config.target }}
           ARCHIVE_TYPES: tar.gz
           UPLOAD_MODE: none
       - name: Get Crate Version
