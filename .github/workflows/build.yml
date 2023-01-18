@@ -13,27 +13,12 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { os: 'Linux', target: 'x86_64-unknown-linux-musl', packages: 'pkg-config librust-alsa-sys-dev' }
           - { os: 'Windows', target: 'x86_64-pc-windows-gnu' }
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@master
-      - name: Install packages (Linux)
-        if: matrix.config.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get -yq --no-install-suggests --no-install-recommends install ${{ matrix.config.packages }}
-      - name: Set ALSA_PATH
-        if: matrix.config.os == 'Linux'
-        run: echo "ALSA_PATH=$(find /usr/lib -name 'alsa.pc')" >> $GITHUB_ENV
-      - name: Set PKG_CONFIG_LIBDIR
-        if: matrix.config.os == 'Linux'
-        run: echo "PKG_CONFIG_LIBDIR=$(dirname $ALSA_PATH)" >> $GITHUB_ENV
-      - name: Check PKG_CONFIG_LIBDIR
-        if: matrix.config.os == 'Linux'
-        run: echo $PKG_CONFIG_LIBDIR
       - name: Compile and Release
         id: compile
         uses: rust-build/rust-build.action@v1.4.0
