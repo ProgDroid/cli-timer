@@ -26,11 +26,14 @@ jobs:
           sudo apt-get update
           sudo apt-get -yq --no-install-suggests --no-install-recommends install ${{ matrix.config.packages }}
       - name: Set ALSA_PATH
+        if: matrix.config.os == 'Linux'
         run: echo "ALSA_PATH=$(find /usr/lib -name 'alsa.pc')" >> $GITHUB_ENV
-      - name: Set PKG_CONFIG_PATH
-        run: echo "PKG_CONFIG_PATH=$(dirname $ALSA_PATH)" >> $GITHUB_ENV
-      - name: Check PKG_CONFIG_PATH
-        run: echo $PKG_CONFIG_PATH
+      - name: Set PKG_CONFIG_LIBDIR
+        if: matrix.config.os == 'Linux'
+        run: echo "PKG_CONFIG_LIBDIR=$(dirname $ALSA_PATH)" >> $GITHUB_ENV
+      - name: Check PKG_CONFIG_LIBDIR
+        if: matrix.config.os == 'Linux'
+        run: echo $PKG_CONFIG_LIBDIR
       - name: Compile and Release
         id: compile
         uses: rust-build/rust-build.action@v1.4.0
