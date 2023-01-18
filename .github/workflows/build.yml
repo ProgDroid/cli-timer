@@ -28,10 +28,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -yq --no-install-suggests --no-install-recommends install ${{ matrix.packages }}
-      - name: Print PKG_CONFIG_PATH
+      - name: Set ALSA_PATH
+        run: echo "ALSA_PATH=$(find /usr/lib -name 'alsa.pc')" >> $GITHUB_ENV
+      - name: Set PKG_CONFIG_PATH
+        run: echo "PKG_CONFIG_PATH=$(dirname $ALSA_PATH)" >> $GITHUB_ENV
+      - name: Check PKG_CONFIG_PATH
         run: echo $PKG_CONFIG_PATH
-      - name: Print alsa.pc path
-        run: find / -name "alsa.pc"
       - name: Compile and Release
         id: compile
         uses: rust-build/rust-build.action@v1.4.0
