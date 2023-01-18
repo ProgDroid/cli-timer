@@ -12,13 +12,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ['x86_64-unknown-linux-musl', 'x86_64-pc-windows-msvc']
         config:
           - { os: 'Linux', target: 'x86_64-unknown-linux-musl' }
           - { os: 'Windows', target: 'x86_64-pc-windows-gnu' }
         include:
           - os: ubuntu-latest
-            packages: alsa-sys
+            packages: pkg-config librust-alsa-sys-dev
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -29,6 +28,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -yq --no-install-suggests --no-install-recommends install ${{ matrix.packages }}
+      - name: Print PKG_CONFIG_PATH
+        run: echo $PKG_CONFIG_PATH
+      - name: Print alsa.pc path
+        run: find / -name "alsa.pc"
       - name: Compile and Release
         id: compile
         uses: rust-build/rust-build.action@v1.4.0
