@@ -39,8 +39,16 @@ fn parse_duration(arg: &str) -> std::result::Result<Duration, std::num::ParseInt
     let split_time_string: Vec<&str> = arg.split(":").collect();
 
     let mut time_in_seconds = 0;
-    for num_string in split_time_string {
-        time_in_seconds += num_string.parse::<i64>()?;
+    for (i, num_string) in split_time_string.iter().enumerate() {
+        let modifier = match i {
+            0 => 60 * 60, // hours
+            1 => 60,      // minutes
+            2 => 1,       // seconds
+            _ => 1,
+        };
+
+        let in_seconds = num_string.parse::<i64>()?;
+        time_in_seconds += in_seconds * modifier;
     }
 
     Ok(Duration::seconds(time_in_seconds))
@@ -90,8 +98,6 @@ fn random_color() -> Color {
         _ => Color::Red, // 0 handled here
     }
 }
-
-// ? Do I need to fix 00:00:00 into -00:00:00?
 
 impl Default for App {
     #[allow(clippy::arithmetic_side_effects)]
@@ -163,8 +169,8 @@ impl App {
             .constraints(
                 [
                     Constraint::Percentage(49),
-                    Constraint::Percentage(5),
-                    Constraint::Percentage(46),
+                    Constraint::Length(1),
+                    Constraint::Min(1),
                 ]
                 .as_ref(),
             )
@@ -194,10 +200,10 @@ impl App {
             State::Paused | State::Restart | State::Triggered => {
                 let paragraph_string = match self.state {
                     State::Paused => {
-                        "Paused"
+                        " Paused"
                     },
                     State::Restart => {
-                        "Are you sure you want to restart the timer? (Press again to confirm, Esc/q to cancel)"
+                        " Are you sure you want to restart the timer? (Press again to confirm, Esc/q to cancel)"
                     },
                     State::Triggered => {
                         self.message.as_ref().map_or("", |message| message)
