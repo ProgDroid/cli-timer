@@ -1,0 +1,5 @@
+# Pinned so a new Rust release cannot turn CI red by itself: clippy runs the pedantic and nursery
+# groups with -D warnings, and new releases add lints to them. Bump on purpose, then fix new lints.
+[toolchain]
+channel = "1.99"
+components = ["rustfmt", "clippy"]

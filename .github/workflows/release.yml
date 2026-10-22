@@ -58,10 +58,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+      # Installs the channel pinned in rust-toolchain.toml (runners ship rustup).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15 (the action's README asks for a commit on master, not the stable branch)
-        with:
-          toolchain: stable
+        run: rustup toolchain install --no-self-update && rustc --version
       - name: Add target
         run: rustup target add ${{ matrix.target }}
       - name: Install ALSA headers
