@@ -66,3 +66,11 @@
 # - github.token    → use GITHUB_TOKEN env var instead
 
 # sync.remote: "git+ssh://git@github.com/ProgDroid/cli-timer.git"
+
+export.auto: true
+export:
+    git-add: true
+    interval: 1ms
+no-push: true
+dolt:
+    local-only: true

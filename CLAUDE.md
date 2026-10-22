@@ -48,9 +48,9 @@ bd close <id>         # Complete work
 
 ### Rules
 
-- Use `bd` for ALL task tracking — do NOT use TodoWrite, TaskCreate, or markdown TODO lists
+- Use `bd` for all DURABLE task tracking: file the issue before writing the code. TodoWrite is a different layer and is NOT banned here; see "Task tracking vs. execution structure" below.
 - Run `bd prime` for detailed command reference and session close protocol
-- Use `bd remember` for persistent knowledge — do NOT use MEMORY.md files
+- Use `bd` for WORK STATE only. Memory is files, not `bd remember`; see "Task tracking vs. execution structure" below.
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/SYNC_CONCEPTS.md for details and anti-patterns.
 
@@ -86,3 +86,34 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 - Do not commit or push without clear authority from the active profile or the current user request.
 - If a required sync or push is blocked, stop and report the exact command and error.
 <!-- END BEADS INTEGRATION -->
+
+## Task tracking vs. execution structure
+
+<!-- This section sits deliberately OUTSIDE the managed Beads block: `bd setup claude`
+     rewrites the lines between the BEGIN/END markers wholesale. -->
+
+The generated Beads block bans `TodoWrite`. **That ban is overridden here**, which the block
+itself sanctions: *"Explicit user or orchestrator instructions override this Beads block."*
+
+| | Owns | Lifetime |
+|---|---|---|
+| **bd** | what work exists, dependencies, what is ready next | across sessions |
+| **TodoWrite / TaskCreate** | how a procedure gets followed — the checklist a skill hands you | within the turn |
+
+Banning `TodoWrite` does not move that state into bd; it deletes it, and with it the
+enforcement mechanism of every skill that hands you a checklist (systematic debugging,
+test-driven development, verification before completion). **File the issue before writing
+the code**, then use `TodoWrite` for the procedure.
+
+**bd owns work state only; memory stays in files**, never `bd remember`.
+
+### After any `bd setup claude` or beads upgrade
+
+The managed block is regenerated and the ban comes back. Check it:
+
+```sh
+sh .beads/check-block.sh     # 0 = ok, 1 = the override was clobbered, 2 = UNKNOWN
+```
+
+It is a script rather than a grep line in this file on purpose: a probe written inside the
+file it probes matches its own documentation (see the script's header).
