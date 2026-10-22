@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "clitimer",
+  "project_id": "d7517753-c94a-4ab5-a0bd-12b022bb4e49"
+}
