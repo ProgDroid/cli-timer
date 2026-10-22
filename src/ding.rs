@@ -321,7 +321,7 @@ mod tests {
                 .contains("nope.wav")
         );
         assert!(lines[0].get("event").is_none());
-        assert!(log_of(alerter).is_empty());
+        assert_eq!(log_of(alerter), "");
     }
 
     #[test]

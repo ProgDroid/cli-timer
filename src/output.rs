@@ -279,7 +279,7 @@ mod tests {
     fn report_in_text_mode_keeps_out_empty() {
         let mut out = Vec::new();
         report(&mut out, "bad", false);
-        assert!(out.is_empty());
+        assert_eq!(out, b"");
     }
 
     #[test]
@@ -296,7 +296,7 @@ mod tests {
     fn finish_is_zero_when_all_went_well() {
         let mut out = Vec::new();
         assert_eq!(finish(&mut out, Outcome::Ok, Ok(())), 0);
-        assert!(out.is_empty());
+        assert_eq!(out, b"");
     }
 
     #[test]
