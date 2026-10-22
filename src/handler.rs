@@ -1,6 +1,10 @@
 use crate::app::{App, Result, State};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+/// Applies a key press to the app state.
+///
+/// # Errors
+/// Never fails at present; the `Result` leaves room for handlers that can.
 pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
     match key_event.code {
         // Exit application on `ESC` or `q`

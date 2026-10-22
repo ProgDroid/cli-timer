@@ -12,52 +12,63 @@ pub enum Event {
     Resize(u16, u16),
 }
 
-#[allow(dead_code)]
 pub struct Handler {
-    sender: mpsc::Sender<Event>,
     receiver: mpsc::Receiver<Event>,
-    handler: thread::JoinHandle<()>,
 }
 
 impl Handler {
+    /// Spawns a thread that emits a tick every `tick_rate` milliseconds plus any terminal events.
+    ///
+    /// The thread is the only sender, so if it stops (terminal read failure, or the receiver is
+    /// gone) the channel closes and [`Handler::next`] returns an error instead of blocking forever.
     #[must_use]
-    #[allow(clippy::shadow_reuse, clippy::expect_used)]
     pub fn new(tick_rate: u64) -> Self {
         let tick_rate = Duration::from_millis(tick_rate);
         let (sender, receiver) = mpsc::channel();
-        let handler = {
-            let sender = sender.clone();
-            thread::spawn(move || {
-                let mut last_tick = Instant::now();
-                loop {
-                    let timeout = tick_rate
-                        .checked_sub(last_tick.elapsed())
-                        .unwrap_or(tick_rate);
+        thread::spawn(move || {
+            let mut last_tick = Instant::now();
+            loop {
+                let timeout = tick_rate
+                    .checked_sub(last_tick.elapsed())
+                    .unwrap_or(tick_rate);
 
-                    if event::poll(timeout).expect("no events available") {
-                        match event::read().expect("unable to read event") {
-                            CrosstermEvent::Key(e) => sender.send(Event::Key(e)),
-                            CrosstermEvent::Mouse(e) => sender.send(Event::Mouse(e)),
-                            CrosstermEvent::Resize(w, h) => sender.send(Event::Resize(w, h)),
-                            _ => Ok(()),
-                        }
-                        .expect("failed to send terminal event");
-                    }
+                let Ok(has_event) = event::poll(timeout) else {
+                    break;
+                };
 
-                    if last_tick.elapsed() >= tick_rate {
-                        sender.send(Event::Tick).expect("failed to send tick event");
-                        last_tick = Instant::now();
+                if has_event {
+                    let Ok(terminal_event) = event::read() else {
+                        break;
+                    };
+
+                    let sent = match terminal_event {
+                        CrosstermEvent::Key(e) => sender.send(Event::Key(e)),
+                        CrosstermEvent::Mouse(e) => sender.send(Event::Mouse(e)),
+                        CrosstermEvent::Resize(w, h) => sender.send(Event::Resize(w, h)),
+                        _ => Ok(()),
+                    };
+
+                    if sent.is_err() {
+                        break;
                     }
                 }
-            })
-        };
-        Self {
-            sender,
-            receiver,
-            handler,
-        }
+
+                if last_tick.elapsed() >= tick_rate {
+                    if sender.send(Event::Tick).is_err() {
+                        break;
+                    }
+                    last_tick = Instant::now();
+                }
+            }
+        });
+
+        Self { receiver }
     }
 
+    /// Blocks until the next event arrives.
+    ///
+    /// # Errors
+    /// Returns an error if the event thread has stopped.
     pub fn next(&self) -> Result<Event> {
         Ok(self.receiver.recv()?)
     }

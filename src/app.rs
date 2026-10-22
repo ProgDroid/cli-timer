@@ -1,14 +1,8 @@
+use crate::sound::{self, Sound};
 use chrono::{DateTime, Duration, Local};
-use clap::Parser;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use rodio::{OutputStream, Sink, Source};
-use std::{
-    error,
-    fs::File,
-    io::BufReader,
-    sync::mpsc::{Sender, TryRecvError},
-    thread,
-};
+use std::{error, path::PathBuf, sync::mpsc::Sender, thread, time::Duration as StdDuration};
 use tui::{
     backend::Backend,
     layout::{Alignment, Constraint, Direction, Layout},
@@ -18,41 +12,6 @@ use tui::{
 };
 
 pub type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
-
-#[derive(Parser)]
-#[command(version, about, long_about = None)]
-pub struct Args {
-    /// Timer duration in format hh:mm:ss
-    #[arg(short, value_parser = parse_duration)]
-    time: Duration,
-
-    /// Path to the sound file to use
-    #[arg(short)]
-    sound: String,
-
-    /// An optional label for when the timer goes off
-    #[arg(short)]
-    label: Option<String>,
-}
-
-fn parse_duration(arg: &str) -> std::result::Result<Duration, std::num::ParseIntError> {
-    let split_time_string: Vec<&str> = arg.split(":").collect();
-
-    let mut time_in_seconds = 0;
-    for (i, num_string) in split_time_string.iter().enumerate() {
-        let modifier = match i {
-            0 => 60 * 60, // hours
-            1 => 60,      // minutes
-            2 => 1,       // seconds
-            _ => 1,
-        };
-
-        let in_seconds = num_string.parse::<i64>()?;
-        time_in_seconds += in_seconds * modifier;
-    }
-
-    Ok(Duration::seconds(time_in_seconds))
-}
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum State {
@@ -71,7 +30,7 @@ pub struct App {
     pub end_time: DateTime<Local>,
     pub colour: Color,
     pub message: Option<String>,
-    pub sound_file: String,
+    pub sound: Sound,
     pub sender: Option<Sender<()>>,
 }
 
@@ -114,25 +73,31 @@ impl Default for App {
             end_time,
             colour: random_color(),
             message: None,
-            sound_file: String::from(""),
+            sound: Sound::Alarm,
             sender: None,
         }
     }
 }
 
 impl App {
-    #[must_use]
-    pub fn new(args: Args) -> Self {
-        let end_time = Local::now() + args.time;
+    /// Builds the app for a timer of `time`, with an optional sound file and label.
+    ///
+    /// # Errors
+    /// Returns an error if the duration does not fit a `chrono::Duration`; the parser's
+    /// `MAX_DURATION` cap makes that unreachable in practice.
+    #[allow(clippy::arithmetic_side_effects)]
+    pub fn new(time: StdDuration, sound: Option<PathBuf>, label: Option<String>) -> Result<Self> {
+        let time = Duration::from_std(time)?;
+        let end_time = Local::now() + time;
 
-        Self {
-            duration: args.time,
-            time_left: args.time,
+        Ok(Self {
+            duration: time,
+            time_left: time,
             end_time,
-            message: args.label,
-            sound_file: args.sound,
+            message: label,
+            sound: sound.map_or(Sound::Alarm, Sound::File),
             ..Self::default()
-        }
+        })
     }
 
     #[allow(clippy::arithmetic_side_effects)]
@@ -147,7 +112,7 @@ impl App {
                 if self.time_left <= Duration::zero() {
                     if let Err(e) = self.start_sound() {
                         eprintln!("Error playing sound: {e}");
-                    };
+                    }
 
                     self.state = State::Triggered;
                 }
@@ -199,15 +164,11 @@ impl App {
         let widget = match self.state {
             State::Paused | State::Restart | State::Triggered => {
                 let paragraph_string = match self.state {
-                    State::Paused => {
-                        " Paused"
-                    },
+                    State::Paused => " Paused",
                     State::Restart => {
                         " Are you sure you want to restart the timer? (Press again to confirm, Esc/q to cancel)"
-                    },
-                    State::Triggered => {
-                        self.message.as_ref().map_or("", |message| message)
                     }
+                    State::Triggered => self.message.as_ref().map_or("", |message| message),
                     State::Running => "",
                 };
 
@@ -240,8 +201,14 @@ impl App {
         self.sender = None;
     }
 
+    /// Starts looping the sound on a background thread, until the thread is told to stop.
+    ///
+    /// # Errors
+    /// Returns an error if the sound file cannot be opened or decoded.
     pub fn start_sound(&mut self) -> Result<()> {
-        let file = File::open(self.sound_file.as_str())?;
+        let source = sound::source(&self.sound)?
+            .repeat_infinite()
+            .fade_in(StdDuration::from_millis(500));
 
         let (tx, rx) = std::sync::mpsc::channel();
 
@@ -264,33 +231,12 @@ impl App {
                 }
             };
 
-            sink.pause();
+            sink.append(source);
 
-            let decoder = match rodio::Decoder::new(BufReader::new(file)) {
-                Ok(decoder) => decoder,
-                Err(e) => {
-                    eprintln!("Could not create decoder from file: {e}");
-                    return;
-                }
-            };
-
-            sink.append(
-                decoder
-                    .repeat_infinite()
-                    .fade_in(std::time::Duration::from_millis(500)),
-            );
-
-            sink.play();
-
-            loop {
-                match rx.try_recv() {
-                    Ok(_) | Err(TryRecvError::Disconnected) => {
-                        sink.stop();
-                        break;
-                    }
-                    Err(TryRecvError::Empty) => {}
-                }
-            }
+            // Blocks until the app sends a stop, or drops the sender on restart or exit; either
+            // way the answer is the same, so the result is not looked at.
+            let _stop = rx.recv();
+            sink.stop();
         });
 
         Ok(())

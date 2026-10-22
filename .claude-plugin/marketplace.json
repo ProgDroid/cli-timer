@@ -1,0 +1,18 @@
+{
+  "name": "cli-timer",
+  "owner": {
+    "name": "ProgDroid",
+    "url": "https://github.com/ProgDroid"
+  },
+  "description": "The cli-timer plugin: reminders and done alerts for Claude Code",
+  "plugins": [
+    {
+      "name": "cli-timer",
+      "source": "./",
+      "description": "Set reminders and done alerts that ring and pop up on your own machine, using the cli-timer binary.",
+      "author": {
+        "name": "ProgDroid"
+      }
+    }
+  ]
+}

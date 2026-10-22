@@ -1,0 +1,122 @@
+name: release
+
+# A pushed tag `vX.Y.Z` builds every platform and publishes a GitHub release.
+# A manual run (workflow_dispatch) is a dry run: it builds and uploads the archives as workflow
+# artifacts but publishes nothing. GitHub only dispatches workflows on the default branch.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Tag matches Cargo.toml
+    timeout-minutes: 10
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Compare tag with the crate version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | sed -E 's/^version *= *"([^"]+)".*/\1/')
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match Cargo.toml version $version (expected v$version)"
+            exit 1
+          fi
+
+  build:
+    name: Build ${{ matrix.target }}
+    timeout-minutes: 45
+    needs: verify
+    # `verify` is skipped on dry runs; only a failed check stops the build.
+    if: ${{ !cancelled() && needs.verify.result != 'failure' }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+          # Older glibc than ubuntu-latest, so the binary runs on more distros.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-15 (the action's README asks for a commit on master, not the stable branch)
+        with:
+          toolchain: stable
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          name="cli-timer-$TARGET"
+          mkdir -p "stage/$name" dist
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cp "target/$TARGET/release/cli-timer.exe" "stage/$name/"
+          else
+            cp "target/$TARGET/release/cli-timer" "stage/$name/"
+          fi
+          cp README.md LICENSE "stage/$name/"
+          if [ "$ARCHIVE" = "zip" ]; then
+            (cd stage && 7z a -tzip "../dist/$name.zip" "$name")
+          else
+            tar -C stage -czf "dist/$name.tar.gz" "$name"
+          fi
+          (cd dist && if command -v sha256sum >/dev/null; then sha256sum "$name.$ARCHIVE"; else shasum -a 256 "$name.$ARCHIVE"; fi > "$name.$ARCHIVE.sha256")
+          ls -l dist
+      - name: Upload archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: cli-timer-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    timeout-minutes: 15
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v8
+        with:
+          pattern: cli-timer-*
+          path: dist
+          merge-multiple: true
+      - name: List archives
+        run: ls -l dist
+      - name: Create release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true
