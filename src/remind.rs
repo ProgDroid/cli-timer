@@ -372,7 +372,7 @@ mod tests {
         let (code, out) = run_with(a, &alerter);
         assert_eq!(code, 1);
         assert_eq!(json_lines(&out).len(), 1);
-        assert!(log_of(alerter).is_empty());
+        assert_eq!(log_of(alerter), "");
     }
 
     #[test]
@@ -405,7 +405,7 @@ mod tests {
             let lines = json_lines(&out);
             assert_eq!(lines.len(), 1, "{bad:?}: {out}");
             assert!(lines[0]["error"].is_string(), "{bad:?}");
-            assert!(log_of(alerter).is_empty());
+            assert_eq!(log_of(alerter), "");
         }
         let (_code, out) = run_with(args("1.5h"), &QuietAlerter::new(Vec::new()));
         assert!(out.contains("hh:mm:ss"), "{out}");

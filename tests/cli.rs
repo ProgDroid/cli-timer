@@ -150,7 +150,7 @@ fn a_bad_sound_file_in_human_mode_goes_to_stderr() {
 
     assert_eq!(output.status.code(), Some(1));
     assert!(elapsed < Duration::from_secs(10), "{elapsed:?}");
-    assert!(text(&output.stdout).is_empty());
+    assert_eq!(text(&output.stdout), "");
     assert!(text(&output.stderr).contains("nope.wav"));
 }
 
@@ -418,7 +418,7 @@ fn ding_with_a_bad_sound_file_in_human_mode_goes_to_stderr() {
     let (output, _elapsed) = run(&["ding", "-s", "nope.wav"]);
 
     assert_eq!(output.status.code(), Some(1));
-    assert!(text(&output.stdout).is_empty());
+    assert_eq!(text(&output.stdout), "");
     assert!(text(&output.stderr).contains("nope.wav"));
 }
 

@@ -28,7 +28,7 @@ pub fn handle_key_events(key_event: KeyEvent, app: &mut App) -> Result<()> {
                 app.state = State::Paused;
             }
             State::Paused => {
-                app.state = app.pre_pause_state.map_or(State::Running, |s| s);
+                app.state = app.pre_pause_state.unwrap_or(State::Running);
                 app.pre_pause_state = None;
             }
             State::Triggered => {
