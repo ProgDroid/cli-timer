@@ -60,7 +60,7 @@ jobs:
         uses: actions/checkout@v7
       # Installs the channel pinned in rust-toolchain.toml (runners ship rustup).
       - name: Install Rust toolchain
-        run: rustup toolchain install && rustc --version
+        run: rustup toolchain install --no-self-update && rustc --version
       - name: Add target
         run: rustup target add ${{ matrix.target }}
       - name: Install ALSA headers
