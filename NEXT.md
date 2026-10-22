@@ -1,18 +1,23 @@
 # NEXT
 
 ## Where we are
-Agent-friendly timers are on `main` (v0.2.0, squash-merged 2026-10-22): `cli-timer remind
-<duration>` (a reminder an agent runs in the background: pop-up + alarm for 30 s), `cli-timer ding
-[message]` (a one-off "done" chime + pop-up), built-in sounds, short durations (`20m`, `1h30m`),
-`--json` output, and a Claude Code plugin with a `timer` skill. The full-screen timer works as
-before, with `-s` now optional. Every task was reviewed, then a whole-branch review and one fix
-pass (157 tests passing). Merged at your request before CI or the checklist below ran, so
-`main` is unverified on Windows and macOS until both are done (see Housekeeping).
+v0.2.0 (agent-friendly timers: `remind`, `ding`, built-in sounds, `--json`, the Claude Code
+plugin) is on `main`, and CI is now live and green. On 2026-10-22 the old Windows-only `build.yml`
+(which failed on the v0.2.0 merge: its Rust was too old for edition 2024) was replaced by
+`check.yml` (fmt, clippy, tests on Linux, Windows, macOS on every push and PR) and `release.yml`.
+Getting macOS green took a dependency bump (`coreaudio-sys` 0.2.11 → 0.2.18, whose old bindgen
+crashed on the current Xcode SDK); macOS now builds and passes all 157 tests. Rust is pinned to
+1.99 in `rust-toolchain.toml`. The release dry run builds all four archives. The only thing left
+before tagging `v0.2.0` is your hands-on check below.
 
 ## How to run
-- Install from your checkout: `cargo install --locked --force --path .` (Rust 1.91 or later).
+- Install from your checkout: `cargo install --locked --force --path .` (rustup fetches Rust 1.99
+  the first time, because of the pin).
 - `cli-timer remind 1m -l "stretch"` / `cli-timer ding "done"` / `cli-timer -t 00:00:10`.
-- Tests: `cargo test` (157: 127 unit + 30 end-to-end; they never pop notifications or play sound).
+- Tests: `cargo test` (157 on Linux/macOS, 156 on Windows: one test is Unix-only). They never pop
+  notifications or play sound.
+- Open work is in Beads now: `bd ready` shows what's next (`clitimer-cco`, the checklist below),
+  `bd list` shows all of it.
 
 ## How it behaves
 `remind` prints a "set" line at once, waits, then shows a pop-up titled cli-timer with your label
@@ -33,13 +38,17 @@ then `/plugin install cli-timer@cli-timer`. Add the allow rule `Bash(cli-timer:*
 5. Note whether Claude told you the reminder fired without being asked.
 6. `cli-timer -t 00:00:05` in a terminal behaves as before, with the built-in alarm; try `-s` with
    one of your own mp3/wav/flac/ogg files too (the decoder changed to symphonia).
-7. After the workflows are active and merged: run the `release` workflow by hand and check all
-   four archives appear, before pushing the `v0.2.0` tag.
+7. When 1–6 pass: push the tag (`git tag v0.2.0 && git push origin v0.2.0`). `release.yml` checks
+   the tag matches `Cargo.toml`, builds the four archives and publishes the GitHub release. Then
+   close `clitimer-cco` and `clitimer-ap6`. dotman installs cli-timer from this repo, so the tag
+   reaches that too.
 
 ## Things you might notice
 - The toast shows as coming from "Windows PowerShell" (accepted).
 - Reminders die if you exit Claude Code (accepted; the detached design is in the parking lot).
 - A bad `-s` file in the full-screen timer only errors when the timer fires (as before).
+- New in this repo: a Beads tracker (`.beads/`), a gitleaks secret scan that runs before every
+  commit (it prints "no leaks found"), and a CLAUDE.md section on Beads vs. to-do lists.
 
 ## Tell me if
 - Item 2 or 3 leaves `cli-timer.exe` running: then `remind` needs to exit when its parent dies
@@ -48,13 +57,14 @@ then `/plugin install cli-timer@cli-timer`. Add the allow rule `Bash(cli-timer:*
 - Anything in the skill's behaviour that felt wrong (wording, when it triggers).
 
 ## Housekeeping
-- **Workflows are staged, not active.** This session couldn't push `.github/workflows/` (no
-  `workflow` permission). Follow `ci/workflows/README.md`: move `check.yml` and `release.yml`,
-  `git rm .github/workflows/build.yml`, delete `ci/workflows/`, update CLAUDE.md's CI line. Do it on
-  a short branch with a PR so `check.yml` runs before it lands, and fix anything red on Windows or
-  macOS before tagging v0.2.0: the macOS code has never been compiled and no tests have run on
-  Windows or macOS.
-- Project-start ritual still open here: Beads, secret scan, lessons search, repo visibility.
+- **Bumping Rust is now a deliberate change**: edit `channel` in `rust-toolchain.toml`, run
+  `cargo clippy --all-targets -- -D warnings` and `cargo test`, fix any new lints in the same
+  change. Rust 1.99 alone flagged 8 spots in code that passed before, so expect some on each bump.
+- The repo only allows squash merges, so a merged PR's subject should start `handoff:`.
+- The public-repo sweep found no secrets. Minor, no action needed: your personal email is the
+  author address on every commit (consider a GitHub noreply address for future ones), commit
+  76bf28b carries a Claude session link, and the agent-timer plan names your private plugins.
+- Project-start ritual: done 2026-10-22, nothing left open.
 
 ## Known rough edges
 See `docs/parking-lot.md` (2026-10-22 entries): no date in the "set" line for reminders over a day;
@@ -62,3 +72,4 @@ Git Bash rewrites a label starting with `/`; x86_64-only Windows/Linux binaries;
 
 ## Feedback log
 _Your answers to the session-start question, dated, newest first._
+- 2026-10-22: "Not tried yet" (the v0.2.0 hands-on checklist hasn't been run).
