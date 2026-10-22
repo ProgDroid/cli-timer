@@ -207,10 +207,11 @@ thin front end.
 
 Where the shipped code differs from the text above:
 
-- **Workflows are staged in `ci/workflows/`**, not in `.github/workflows/`: the cloud session that
-  built this could not push workflow files (its GitHub access lacks the `workflow` permission), so
-  `build.yml` is not yet replaced. `ci/workflows/README.md` has the activation steps; merge only
-  once `check.yml` is green on all three OSes.
+- **Workflows were first staged in `ci/workflows/`**, not in `.github/workflows/`: the cloud
+  session that built this could not push workflow files (its GitHub access lacks the `workflow`
+  permission), so the merge to `main` still ran the old `build.yml`, which failed (its pinned
+  toolchain predates edition 2024). They were moved into `.github/workflows/`, and `build.yml`
+  deleted, on a follow-up branch, merged once `check.yml` passed on all three OSes.
 - **Notifications:** notify-rust on Windows and Linux only. On macOS, notify-rust's `show()` always
   returns `Ok` and uses an API deprecated from macOS 14, so macOS uses `osascript` with the title
   and body passed as arguments.
