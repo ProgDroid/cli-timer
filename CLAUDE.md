@@ -6,6 +6,7 @@ Rust CLI countdown timer: `tui` 0.19 + crossterm for the full-screen UI, rodio f
 - Format: `cargo fmt --all`
 - Lint: `cargo clippy --all-targets -- -D warnings` (policy lives in `Cargo.toml` `[lints.clippy]`)
 - Test: `cargo test` (unit tests in each `src/` file, end-to-end tests in `tests/cli.rs` that run the real binary). Tests are silent and need no `CLI_TIMER_QUIET` in your shell: unit tests never build the system alerter, and the end-to-end helper sets `CLI_TIMER_QUIET=1` on every process it spawns. Set `CLI_TIMER_QUIET=1` yourself when you run the binary by hand and don't want a pop-up or sound.
+- Toolchain: pinned in `rust-toolchain.toml` (CI and local cargo both use it). To bump: change `channel`, run fmt, clippy and tests, and fix any new pedantic/nursery lints in the same change.
 - Linux builds need ALSA headers: `libasound2-dev` and `pkg-config`
 - Windows check without CI (e.g. in a cloud session): `cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings` (needs `rustup target add x86_64-pc-windows-gnu` and the `gcc-mingw-w64-x86-64` package). Compiles and lints only; no tests.
 - CI: `.github/workflows/check.yml` (fmt, clippy, test on Linux, Windows, macOS, every push and PR) and `.github/workflows/release.yml` (a pushed `vX.Y.Z` tag builds Windows, macOS arm64/x86_64 and Linux archives and publishes a release; a manual run is a dry run that only uploads the archives as workflow artifacts). Before pushing a tag, do a manual run and check all four archives appear.
