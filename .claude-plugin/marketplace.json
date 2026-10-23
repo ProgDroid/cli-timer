@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "cli-timer",
-      "source": "./",
+      "source": "./plugin",
       "description": "Set reminders and done alerts that ring and pop up on your own machine, using the cli-timer binary.",
       "author": {
         "name": "ProgDroid"

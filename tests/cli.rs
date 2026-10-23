@@ -431,8 +431,11 @@ fn ding_help_is_listed_in_the_program_help() {
 
 #[test]
 fn plugin_version_matches_crate() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/.claude-plugin/plugin.json");
-    let manifest = std::fs::read_to_string(path).expect("read .claude-plugin/plugin.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/plugin/.claude-plugin/plugin.json"
+    );
+    let manifest = std::fs::read_to_string(path).expect("read plugin/.claude-plugin/plugin.json");
     let manifest: Value = serde_json::from_str(&manifest).expect("plugin.json is JSON");
     assert_eq!(
         manifest["version"].as_str(),

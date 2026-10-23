@@ -4,7 +4,8 @@ Ideas that are out of scope for the current work. One bullet per idea: the idea,
 came from, and a pointer to a detail doc when there is one.
 
 - **MCP server mode** (`cli-timer mcp`, stdio) exposing remind/ding (and list/cancel, if the detached mode exists) as typed tools,
-  shipped through the same plugin's `.mcp.json`. Deferred: the CLI + skill covers it for now; add
+  shipped through the same plugin's `.mcp.json` (it must live in `plugin/`, next to the plugin's
+  `.claude-plugin/`: a root `.mcp.json` would be a project MCP config, not part of the plugin). Deferred: the CLI + skill covers it for now; add
   it if per-command permission prompts or command wording become a nuisance. The core is a library
   so this stays a thin layer. 2026-10-22, agent-timer brainstorm
   ([design](superpowers/specs/2026-10-22-agent-timer-design.md)).
@@ -44,3 +45,15 @@ came from, and a pointer to a detail doc when there is one.
 - **Test helper duplication**: the WAV writer exists three times (`src/sound.rs`, `src/ding.rs`,
   `tests/cli.rs`), plus `json_lines`/`log_of`; the temp WAVs are never removed. A shared test module
   is not worth it yet. 2026-10-22, agent-timer build (final review m8).
+- **Plugin version is tied to the crate version**: `tests/cli.rs` `plugin_version_matches_crate`
+  forces them equal, and the plugin version names Claude Code's cache folder, so an install only
+  refreshes on a version change. A skill-only fix therefore needs a crate bump and a release, and
+  between bump and tag a fresh install can get a skill that expects an unreleased binary. Options:
+  decouple the versions, or drop the manifest `version` so git installs key on the commit SHA.
+  2026-10-23, red team of the plugin-subfolder design
+  (`superpowers/reviews/2026-10-22-plugin-subfolder-design-redteam.md`).
+- **Installed plugin copies carry no licence**: since the plugin moved to `plugin/`, an install
+  copies only the manifest and the skill, not `LICENSE` (GPL-3.0), and `plugin.json` has no
+  `license` field (`Cargo.toml` has none either). Add `"license"` to both if it matters.
+  2026-10-23, red team of the plugin-subfolder plan
+  (`superpowers/reviews/2026-10-23-plugin-subfolder-redteam.md`).
