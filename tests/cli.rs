@@ -1,6 +1,7 @@
 //! End-to-end tests: the real binary, run quietly (no notification, no sound) with stdin closed.
 
 use serde_json::Value;
+use std::io::Read;
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
@@ -14,6 +15,54 @@ fn run(args: &[&str]) -> (Output, Duration) {
         .expect("run the binary");
     (output, started.elapsed())
 }
+
+/// Like [`run`], but a process still running after `deadline` is killed and the test fails by
+/// name instead of hanging. The full-screen timer waits for a key once it has started.
+fn run_within(args: &[&str], deadline: Duration) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_cli-timer"))
+        .args(args)
+        .env("CLI_TIMER_QUIET", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("run the binary");
+    // Drained on threads so a full pipe can't block the child.
+    let drain = |mut pipe: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            pipe.read_to_end(&mut bytes).expect("read a pipe");
+            bytes
+        })
+    };
+    let stdout = drain(Box::new(child.stdout.take().expect("stdout")));
+    let stderr = drain(Box::new(child.stderr.take().expect("stderr")));
+
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait().expect("poll the child") {
+            break status;
+        }
+        if started.elapsed() > deadline {
+            child.kill().expect("kill the child");
+            child.wait().expect("reap the child");
+            panic!("cli-timer {args:?} still running after {deadline:?}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Output {
+        status,
+        stdout: stdout.join().expect("stdout thread"),
+        stderr: stderr.join().expect("stderr thread"),
+    }
+}
+
+/// What crossterm writes to enter the full-screen timer's alternate screen.
+///
+/// A backstop only: on Windows crossterm may enter it through the console API with no escape
+/// bytes, and with no tty the screen fails at raw mode before writing them. The exit code and error
+/// text are the real checks.
+const ALTERNATE_SCREEN: &str = "\x1b[?1049h";
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8(bytes.to_vec()).expect("utf-8")
@@ -152,6 +201,36 @@ fn a_bad_sound_file_in_human_mode_goes_to_stderr() {
     assert!(elapsed < Duration::from_secs(10), "{elapsed:?}");
     assert_eq!(text(&output.stdout), "");
     assert!(text(&output.stderr).contains("nope.wav"));
+}
+
+#[test]
+fn the_full_screen_timer_rejects_a_missing_sound_file_before_starting() {
+    let output = run_within(&["-t", "1s", "-s", "nope.wav"], Duration::from_secs(5));
+
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(
+        stderr.contains("cannot open sound file nope.wav"),
+        "{stderr}"
+    );
+    assert!(
+        !stderr.contains(ALTERNATE_SCREEN),
+        "the screen opened: {stderr:?}"
+    );
+}
+
+#[test]
+fn the_full_screen_timer_rejects_a_file_that_is_not_audio() {
+    let not_audio = concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml");
+    let output = run_within(&["-t", "1s", "-s", not_audio], Duration::from_secs(5));
+
+    let stderr = text(&output.stderr);
+    assert_eq!(output.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("cannot decode sound file"), "{stderr}");
+    assert!(
+        !stderr.contains(ALTERNATE_SCREEN),
+        "the screen opened: {stderr:?}"
+    );
 }
 
 #[test]
@@ -429,17 +508,32 @@ fn ding_help_is_listed_in_the_program_help() {
     assert!(text(&output.stdout).contains("ding"));
 }
 
-#[test]
-fn plugin_version_matches_crate() {
+fn plugin_manifest() -> Value {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/plugin/.claude-plugin/plugin.json"
     );
     let manifest = std::fs::read_to_string(path).expect("read plugin/.claude-plugin/plugin.json");
-    let manifest: Value = serde_json::from_str(&manifest).expect("plugin.json is JSON");
+    serde_json::from_str(&manifest).expect("plugin.json is JSON")
+}
+
+#[test]
+fn plugin_version_matches_crate() {
+    let manifest = plugin_manifest();
     assert_eq!(
         manifest["version"].as_str(),
         Some(env!("CARGO_PKG_VERSION")),
         "plugin.json version must equal the crate version"
+    );
+}
+
+#[test]
+fn plugin_licence_matches_crate() {
+    let manifest = plugin_manifest();
+    assert_eq!(env!("CARGO_PKG_LICENSE"), "GPL-3.0-or-later");
+    assert_eq!(
+        manifest["license"].as_str(),
+        Some(env!("CARGO_PKG_LICENSE")),
+        "plugin.json license must equal the crate licence"
     );
 }

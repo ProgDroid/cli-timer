@@ -2,7 +2,7 @@
 
 use crate::alert::Outcome;
 use crate::cli::{EXIT_ERROR, EXIT_OK, EXIT_PARTIAL};
-use chrono::{DateTime, Local, SecondsFormat};
+use chrono::{DateTime, Datelike, Local, NaiveDate, SecondsFormat};
 use serde::{Serialize, Serializer};
 use std::io::{self, Write};
 
@@ -48,9 +48,28 @@ pub fn write_event(out: &mut impl Write, event: &Event, json: bool) -> io::Resul
         serde_json::to_writer(&mut *out, event)?;
         return writeln!(out);
     }
+    write_text(out, event, Local::now().date_naive())
+}
+
+/// When a reminder fires, for a person: the bare time today, otherwise with the day, and with the
+/// year when it is not this year. `remind 30h` must not read as later today.
+fn clock(at: &DateTime<Local>, today: NaiveDate) -> String {
+    let day = at.date_naive();
+    let format = if day == today {
+        "%H:%M:%S"
+    } else if day.year() == today.year() {
+        "%a %-d %b %H:%M:%S"
+    } else {
+        "%a %-d %b %Y %H:%M:%S"
+    };
+    at.format(format).to_string()
+}
+
+/// Writes `event` as one line of text, as if today were `today`.
+fn write_text(out: &mut impl Write, event: &Event, today: NaiveDate) -> io::Result<()> {
     match event {
         Event::Set { label, fires_at } => {
-            let at = fires_at.format("%H:%M:%S");
+            let at = clock(fires_at, today);
             match label {
                 Some(l) => writeln!(out, "Reminder set: \"{l}\" at {at}"),
                 None => writeln!(out, "Reminder set at {at}"),
@@ -124,10 +143,57 @@ mod tests {
             .expect("unambiguous local time")
     }
 
+    fn on(year: i32, month: u32, day: u32, hour: u32, min: u32, sec: u32) -> DateTime<Local> {
+        Local
+            .with_ymd_and_hms(year, month, day, hour, min, sec)
+            .single()
+            .expect("unambiguous local time")
+    }
+
+    fn date(y: i32, mo: u32, d: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, mo, d).expect("a real date")
+    }
+
     fn event_text(event: &Event, json: bool) -> String {
         let mut out = Vec::new();
         write_event(&mut out, event, json).expect("write");
         String::from_utf8(out).expect("utf-8")
+    }
+
+    /// The text line for `event` as if today were `today`.
+    fn text_on(event: &Event, today: NaiveDate) -> String {
+        let mut out = Vec::new();
+        write_text(&mut out, event, today).expect("write");
+        String::from_utf8(out).expect("utf-8")
+    }
+
+    #[test]
+    fn clock_is_the_bare_time_today() {
+        assert_eq!(clock(&at(14, 32, 5), date(2026, 10, 22)), "14:32:05");
+    }
+
+    #[test]
+    fn clock_shows_the_day_when_it_is_not_today() {
+        assert_eq!(
+            clock(&on(2026, 10, 23, 1, 0, 0), date(2026, 10, 22)),
+            "Fri 23 Oct 01:00:00"
+        );
+    }
+
+    #[test]
+    fn clock_shows_the_year_when_it_is_another_year() {
+        assert_eq!(
+            clock(&on(2028, 1, 1, 9, 0, 0), date(2026, 10, 22)),
+            "Sat 1 Jan 2028 09:00:00"
+        );
+    }
+
+    #[test]
+    fn human_set_line_on_another_day() {
+        assert_eq!(
+            text_on(&set(Some("x")), date(2026, 10, 21)),
+            "Reminder set: \"x\" at Thu 22 Oct 14:32:05\n"
+        );
     }
 
     fn set(label: Option<&str>) -> Event {
@@ -215,11 +281,12 @@ mod tests {
 
     #[test]
     fn human_set_line() {
+        let today = date(2026, 10, 22);
         assert_eq!(
-            event_text(&set(Some("check the oven")), false),
+            text_on(&set(Some("check the oven")), today),
             "Reminder set: \"check the oven\" at 14:32:05\n"
         );
-        assert_eq!(event_text(&set(None), false), "Reminder set at 14:32:05\n");
+        assert_eq!(text_on(&set(None), today), "Reminder set at 14:32:05\n");
     }
 
     #[test]

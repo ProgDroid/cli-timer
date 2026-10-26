@@ -7,6 +7,7 @@ use cli_timer::ding;
 use cli_timer::event::{Event, Handler};
 use cli_timer::handler::handle_key_events;
 use cli_timer::remind;
+use cli_timer::sound;
 use cli_timer::tui::Tui;
 use std::io;
 use std::process::ExitCode;
@@ -45,6 +46,8 @@ fn run_timer(args: TuiArgs) -> Result<()> {
     };
 
     let mut app = App::new(time, args.sound, args.label)?;
+    // Before the screen opens: once it has, an error would be drawn over and lost.
+    sound::check(&app.sound)?;
 
     let backend = CrosstermBackend::new(io::stderr());
     let terminal = Terminal::new(backend)?;

@@ -20,15 +20,9 @@ came from, and a pointer to a detail doc when there is one.
   must hold a lock on its file (so `list` never reports a dead timer as pending) and ids must never
   be reused (red-team review, `docs/superpowers/reviews/2026-10-22-agent-timer-design-redteam.md`).
   Deferred 2026-10-22, agent-timer brainstorm: the simpler design is a subset of this one.
-- **Human `set` line has no date for reminders over a day**: `remind 30h` prints "Reminder set at
-  16:39:46", which reads as today. Show the weekday or date when `fires_at` is not today (`src/output.rs`).
-  JSON is fine (full RFC 3339). 2026-10-22, agent-timer build (final review m6).
 - **Git Bash path-rewrites a label starting with `/`** on Windows (MSYS turns `/standup` into
   `C:/Program Files/Git/standup` for a native exe). Only the skill warns about it; no code fix known.
   2026-10-22, agent-timer build (final review m5).
-- **The full-screen timer validates `-s` only at fire time**, then prints into its own alternate
-  screen, so a bad file shows as a silent, negative timer. Cheap fix: `sound::check` in `run_timer`
-  before `tui.init()`. Pre-existing. 2026-10-22, agent-timer build (final review m12).
 - **CI runner retirement**: `release.yml` pins `ubuntu-22.04` for an older glibc; GitHub will retire
   that image, so move to a container or `ubuntu-24.04` then. `Swatinem/rust-cache` is only in
   `check.yml` now. 2026-10-22, agent-timer build (final review, ledger Task 8).
@@ -52,8 +46,11 @@ came from, and a pointer to a detail doc when there is one.
   decouple the versions, or drop the manifest `version` so git installs key on the commit SHA.
   2026-10-23, red team of the plugin-subfolder design
   (`superpowers/reviews/2026-10-22-plugin-subfolder-design-redteam.md`).
-- **Installed plugin copies carry no licence**: since the plugin moved to `plugin/`, an install
-  copies only the manifest and the skill, not `LICENSE` (GPL-3.0), and `plugin.json` has no
-  `license` field (`Cargo.toml` has none either). Add `"license"` to both if it matters.
-  2026-10-23, red team of the plugin-subfolder plan
-  (`superpowers/reviews/2026-10-23-plugin-subfolder-redteam.md`).
+  **Considered for v0.2.1 and kept coupled (2026-10-23)**: dropping `version` was picked, then
+  reversed after its red team (`superpowers/reviews/2026-10-23-v0.2.1-polish-design-redteam.md`).
+  Facts from that round: the developer's local-path install loads in place and ignores `version`
+  (Claude Code plugin loading docs), so only GitHub installs gain; the repo had 0 stars/forks;
+  auto-update is off for this marketplace. Revisit when a real skill-only fix exists. If revisited:
+  a "skill minimum <= crate version" test does NOT prove `main` only asks for released binaries,
+  and the MCP server entry above would re-tie plugin and binary (its server skips the skill's
+  version check).
