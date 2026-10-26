@@ -13,7 +13,9 @@ batch of three small fixes:
 Both version fields say 0.2.1 and stay tied together: dropping the plugin version was considered
 and reversed (reasons in `docs/parking-lot.md`, under "Plugin version is tied to the crate
 version"). A fresh reviewer read the whole branch and found nothing blocking; its four small notes
-were fixed before the merge (`docs/superpowers/reviews/2026-10-23-v0.2.1-polish-final-review.md`).
+were fixed before the merge, and the six judgement calls made while building it are listed at the
+end of `docs/superpowers/reviews/2026-10-23-v0.2.1-polish-final-review.md`. CI on the merged `main`
+passed on Windows, Linux and macOS.
 
 **Still to do: the release.** A manual run of `release.yml` (dry run) to see four archives, then
 push the `v0.2.1` tag. It is tracked as the last open task of the v0.2.1 epic in `bd`.
