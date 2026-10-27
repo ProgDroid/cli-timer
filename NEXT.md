@@ -1,24 +1,17 @@
 # NEXT
 
 ## Where we are
-**v0.2.1 is merged into `main` and pushed, but not released yet** (2026-10-26). It is a polish
-batch of three small fixes:
-- The full-screen timer now checks the `-s` sound file before it opens its screen, so a missing or
+**v0.2.1 is released** (2026-10-27): https://github.com/ProgDroid/cli-timer/releases/tag/v0.2.1,
+with archives for Windows, macOS (Apple Silicon and Intel) and Linux, each with a `.sha256` file.
+A dry run first showed all four archives; the tag then published them. You installed 0.2.1 from
+this checkout and checked its three fixes by hand, and all of them worked:
+- The full-screen timer checks the `-s` sound file before it opens its screen, so a missing or
   non-audio file gives an error at once instead of a silent alarm at the end.
 - A reminder's "set" line shows the day when the reminder is not today (`at Sat 24 Oct 01:00:00`),
   and the year too when it falls in another year. A same-day reminder still shows just the time.
-- `Cargo.toml` and the plugin manifest now say `GPL-3.0-or-later`, so installed plugin copies say
-  what licence they carry.
+- `Cargo.toml` and the plugin manifest say `GPL-3.0-or-later`.
 
-Both version fields say 0.2.1 and stay tied together: dropping the plugin version was considered
-and reversed (reasons in `docs/parking-lot.md`, under "Plugin version is tied to the crate
-version"). A fresh reviewer read the whole branch and found nothing blocking; its four small notes
-were fixed before the merge, and the six judgement calls made while building it are listed at the
-end of `docs/superpowers/reviews/2026-10-23-v0.2.1-polish-final-review.md`. CI on the merged `main`
-passed on Windows, Linux and macOS.
-
-**Still to do: the release.** A manual run of `release.yml` (dry run) to see four archives, then
-push the `v0.2.1` tag. It is tracked as the last open task of the v0.2.1 epic in `bd`.
+There is no open work in `bd`. The next piece of work has not been picked.
 
 ## How to run
 - Install: `cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or a
@@ -38,13 +31,9 @@ Exit codes: 0 ok, 1 failed before anything fired, 3 fired but the sound or pop-u
 Cancelling a reminder in Claude Code kills the process, which also stops a ringing alarm.
 
 ## Try this
-Your installed binary is still 0.2.0. Run `cargo install --locked --force --path .` first (or wait
-for the release), then:
-- `cli-timer -t 10s -s nope.wav`: prints `Error: cannot open sound file nope.wav` and exits; the
-  full-screen timer never opens.
-- `cli-timer -t 10s -s Cargo.toml`: says it cannot decode the sound file, same as above.
-- `cli-timer remind 30h -l test`, then Ctrl+C: the "set" line names tomorrow's day and date.
-  `cli-timer remind 1m` still shows just the time.
+- If you want, download one archive from the release page and run it, to confirm the published
+  binary (not just your local build) says `0.2.1` with `cli-timer --version`.
+- Look through `docs/parking-lot.md` and pick what comes next.
 
 ## Things you might notice
 - Your install points at this folder, so Claude Code reads the skill straight from
@@ -59,11 +48,10 @@ for the release), then:
 - A reminder with no label prints `"label":null` in JSON and the pop-up says "Timer finished".
 
 ## Tell me if
-- A bad `-s` file ever gets past the start and fails at the end instead.
-- A "set" line shows the wrong day, or a day when the reminder is today.
+- A release archive doesn't run on its platform, or its `.sha256` doesn't match.
 - A reminder ever fires late, twice, or not at all, or a `cli-timer.exe` lingers after one ends.
 - Claude reaches for its own scheduling instead of `cli-timer` when you ask to be reminded.
-- Whether to cut the v0.2.1 release now, and what to do next from `docs/parking-lot.md`.
+- What to do next from `docs/parking-lot.md`.
 
 ## Housekeeping
 - **Bumping Rust is a deliberate change**: edit `channel` in `rust-toolchain.toml`, run
@@ -73,8 +61,7 @@ for the release), then:
   `main`.
 - Next release: bump `version` in both `Cargo.toml` and `plugin/.claude-plugin/plugin.json` (a
   test fails if they differ), do a manual release run (dry run) and check four archives appear,
-  then push the `vX.Y.Z` tag. For v0.2.1 the bump is already done; only the dry run and the tag
-  are left.
+  then push the `vX.Y.Z` tag (lightweight, like the earlier ones).
 
 ## Known rough edges
 See `docs/parking-lot.md`: Git Bash rewrites a label starting with `/`; x86_64-only Windows/Linux
@@ -82,6 +69,9 @@ binaries; rodio 0.16; `tui` unmaintained; the plugin version is tied to the crat
 
 ## Feedback log
 _Your answers to the session-start question, dated, newest first._
+- 2026-10-27: "Not tried yet"; walked through the 0.2.1 checks (install, missing `-s` file,
+  non-audio `-s` file, the day in the "set" line): "all working". Then asked to release; v0.2.1
+  published.
 - 2026-10-26: asked to fix the review's small notes, then merge into `main` locally and push
   (v0.2.1 merged; the release itself was not asked for).
 - 2026-10-23 (second session): "Not tried yet" (the plugin-subfolder install, since the restart).
