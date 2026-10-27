@@ -1,7 +1,8 @@
 # NEXT
 
 ## Where we are
-**v0.2.2 is merged into `main`, not released yet** (2026-10-27). It is the dependency refresh:
+**v0.2.2 is released** (2026-10-27): https://github.com/ProgDroid/cli-timer/releases/tag/v0.2.2,
+four archives with `.sha256` files, release notes naming the `-s` change. It is the dependency refresh:
 every direct dependency is current, and cli-timer should behave as 0.2.1 did, with one deliberate
 exception (below).
 - The full-screen UI moved from `tui` 0.19 (unmaintained) to `ratatui` 0.30.2, with crossterm 0.29
@@ -22,8 +23,11 @@ tests pass on Windows; CI passed on Linux, Windows and macOS. Design, plan and r
 `docs/superpowers/specs/2026-10-27-dependency-refresh-design.md`, `docs/superpowers/plans/`,
 `docs/superpowers/reviews/2026-10-27-dependency-refresh-*`.
 
-**Still to do: your hands-on check (below), then the release** (dry run, four archives, tag
-`v0.2.2`). Tracked as the last open task of the v0.2.2 epic in `bd`.
+You ran the Windows hands-on check (keys, alarm, an mp3 `-s` file, `ding`) and all was well; a real
+`remind --json` printed only JSON lines and nothing on stderr. There is no open work in `bd`; the
+next piece of work has not been picked.
+
+The `deps-refresh` branch is still on GitHub and locally (squash-merged, safe to delete).
 
 ## How to run
 - Install: `cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or a
@@ -43,14 +47,10 @@ Exit codes: 0 ok, 1 failed before anything fired, 3 fired but the sound or pop-u
 Cancelling a reminder in Claude Code kills the process, which also stops a ringing alarm.
 
 ## Try this
-Install 0.2.2 first: `cargo install --locked --force --path .`, then on Windows:
-- `cli-timer -t 20s`: the full screen looks as before. Press Space (pauses and stays paused), Space
-  (resumes), `r` (asks to confirm), Esc (back to running, does not quit), `r` `r` (restarts), let it
-  ring, then `q` (quits).
-- `cli-timer -t 5s -s <some.mp3>`: your own mp3 rings.
-- `cli-timer remind 5s -l test`: pop-up "test", 30 s alarm, nothing extra printed.
-- `cli-timer ding "done"`: chime and pop-up.
-- `cli-timer remind 5s --json`: only JSON lines, nothing else.
+Your installed binary is 0.2.2 already. Things not checked by a person yet:
+- On a Mac or Linux machine, a release archive: `cli-timer ding "done"` gives a chime and pop-up.
+- On a 5.1/7.1 output, if you ever have one: the alarm plays from every speaker.
+- Look through `docs/parking-lot.md` and pick what comes next.
 
 ## Things you might notice
 - `cli-timer --help` lines up one space narrower, and one usage error is worded differently
@@ -80,8 +80,8 @@ Install 0.2.2 first: `cargo install --locked --force --path .`, then on Windows:
   `main`.
 - Next release: bump `version` in both `Cargo.toml` and `plugin/.claude-plugin/plugin.json` (a
   test fails if they differ), do a manual release run (dry run) and check four archives appear,
-  then push the `vX.Y.Z` tag (lightweight). For v0.2.2 the bump is done; the dry run and tag are
-  left. The release notes should mention the `-s` format change.
+  then push the `vX.Y.Z` tag (lightweight). Write release notes by hand when behaviour changed
+  (`gh release edit vX.Y.Z --notes-file <file>`); the workflow only adds a changelog link.
 
 ## Known rough edges
 See `docs/parking-lot.md`: rodio 0.23 is an upstream stopgap before a bigger release (expect
@@ -92,6 +92,8 @@ person on 0.2.2.
 
 ## Feedback log
 _Your answers to the session-start question, dated, newest first._
+- 2026-10-27 (later): ran the v0.2.2 hands-on check on Windows: "all is well". v0.2.2 tagged and
+  released.
 - 2026-10-27: "Not tried yet"; walked through the 0.2.1 checks (install, missing `-s` file,
   non-audio `-s` file, the day in the "set" line): "all working". Then asked to release; v0.2.1
   published. Picked the dependency refresh next, everything current, rodio 0.23 despite its
