@@ -1,10 +1,10 @@
 use crate::app::{App, Result};
 use crate::event::Handler;
-use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
-use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
+use ratatui::Terminal;
+use ratatui::backend::Backend;
+use ratatui::crossterm::event::{DisableMouseCapture, EnableMouseCapture};
+use ratatui::crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use std::io;
-use tui::Terminal;
-use tui::backend::Backend;
 
 #[allow(clippy::partial_pub_fields)]
 pub struct Tui<B: Backend> {
@@ -12,7 +12,10 @@ pub struct Tui<B: Backend> {
     pub events: Handler,
 }
 
-impl<B: Backend> Tui<B> {
+impl<B: Backend> Tui<B>
+where
+    B::Error: 'static,
+{
     pub const fn new(terminal: Terminal<B>, events: Handler) -> Self {
         Self { terminal, events }
     }
@@ -23,7 +26,7 @@ impl<B: Backend> Tui<B> {
     /// Returns an error if the terminal cannot be configured.
     pub fn init(&mut self) -> Result<()> {
         terminal::enable_raw_mode()?;
-        crossterm::execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;
+        ratatui::crossterm::execute!(io::stderr(), EnterAlternateScreen, EnableMouseCapture)?;
         self.terminal.hide_cursor()?;
         self.terminal.clear()?;
         Ok(())
@@ -44,7 +47,7 @@ impl<B: Backend> Tui<B> {
     /// Returns an error if the terminal cannot be restored.
     pub fn exit(&mut self) -> Result<()> {
         terminal::disable_raw_mode()?;
-        crossterm::execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture)?;
+        ratatui::crossterm::execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture)?;
         self.terminal.show_cursor()?;
         Ok(())
     }

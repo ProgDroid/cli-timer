@@ -1,17 +1,27 @@
 //! Built-in sounds, sounds from files, and bounded playback.
 //!
 //! The alarm and chime are synthesised as mono `f32` samples, so they are deterministic and need
-//! no audio device to build. Only [`play`] touches the output device.
+//! no audio device to build. Only [`open_output`] opens the output device.
 
 use rodio::buffer::SamplesBuffer;
-use rodio::{Decoder, OutputStream, Sink, Source};
+use rodio::decoder::DecoderError;
+use rodio::source::SeekError;
+use rodio::{
+    ChannelCount, Decoder, DeviceSinkError, MixerDeviceSink, Player, Sample, SampleRate, Source,
+};
 use std::fs::File;
-use std::io::{self, BufReader};
+use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
-/// Sample rate of the built-in sounds. rodio 0.16's `SineWave` is fixed at 48 kHz too.
+/// Sample rate of the built-in sounds, in Hz.
 pub const SAMPLE_RATE: u32 = 48_000;
+
+/// [`SAMPLE_RATE`] as rodio takes it.
+const RATE: SampleRate = SampleRate::new(SAMPLE_RATE).unwrap();
+
+/// The built-in sounds are mono.
+const MONO: ChannelCount = rodio::nz!(1);
 
 /// Longest a reminder may ring, whatever was asked for.
 pub const MAX_RING: Duration = Duration::from_mins(10);
@@ -63,15 +73,26 @@ pub enum Playback {
 pub enum SoundError {
     #[error("cannot open sound file {}: {source}", .path.display())]
     Open { path: PathBuf, source: io::Error },
-    #[error("cannot decode sound file {}: {source}", .path.display())]
-    Decode {
-        path: PathBuf,
-        source: rodio::decoder::DecoderError,
-    },
+    #[error("cannot decode sound file {}: {}", .path.display(), decode_detail(.source))]
+    Decode { path: PathBuf, source: DecoderError },
     #[error("no audio output available: {0}")]
-    Output(#[from] rodio::StreamError),
-    #[error("cannot start playback: {0}")]
-    Playback(#[from] rodio::PlayError),
+    Output(#[from] DeviceSinkError),
+}
+
+/// What a [`SoundError::Decode`] says after the path.
+///
+/// Every variant keeps the wording `-s` has always shown (rodio 0.16's), on stderr and in
+/// `--json`'s `error`, rather than rodio's own, which changes between releases: "Unrecognized
+/// format" for an unrecognised file, and the cause itself (such as "end of stream" for a cut-off
+/// file) where rodio 0.23 prints a fixed sentence without it.
+fn decode_detail(error: &DecoderError) -> String {
+    match error {
+        DecoderError::UnrecognizedFormat => "Unrecognized format".to_owned(),
+        DecoderError::IoError(msg) => msg.clone(),
+        DecoderError::DecodeError(msg) | DecoderError::LimitError(msg) => (*msg).to_owned(),
+        DecoderError::ResetRequired => "Reset required".to_owned(),
+        DecoderError::NoStreams => "No streams".to_owned(),
+    }
 }
 
 /// The ring time to use for a requested one: never more than [`MAX_RING`].
@@ -122,7 +143,7 @@ fn chime_samples() -> Vec<f32> {
     samples
 }
 
-/// Opens `sound` as a source of `f32` samples.
+/// Opens `sound` as a source of samples.
 ///
 /// A file is opened and its header decoded here, so a bad path or format fails now rather than
 /// when the sound is needed.
@@ -130,29 +151,20 @@ fn chime_samples() -> Vec<f32> {
 /// # Errors
 /// Returns [`SoundError::Open`] if the file cannot be opened and [`SoundError::Decode`] if it is
 /// not audio the decoder understands.
-pub fn source(sound: &Sound) -> Result<Box<dyn Source<Item = f32> + Send>, SoundError> {
+pub fn source(sound: &Sound) -> Result<Box<dyn Source + Send>, SoundError> {
     match sound {
-        Sound::Alarm => Ok(Box::new(SamplesBuffer::new(
-            1,
-            SAMPLE_RATE,
-            alarm_samples(),
-        ))),
-        Sound::Chime => Ok(Box::new(SamplesBuffer::new(
-            1,
-            SAMPLE_RATE,
-            chime_samples(),
-        ))),
+        Sound::Alarm => Ok(Box::new(SamplesBuffer::new(MONO, RATE, alarm_samples()))),
+        Sound::Chime => Ok(Box::new(SamplesBuffer::new(MONO, RATE, chime_samples()))),
         Sound::File(path) => {
             let file = File::open(path).map_err(|source| SoundError::Open {
                 path: path.clone(),
                 source,
             })?;
-            let decoder =
-                Decoder::new(BufReader::new(file)).map_err(|source| SoundError::Decode {
-                    path: path.clone(),
-                    source,
-                })?;
-            Ok(Box::new(decoder.convert_samples()))
+            let decoder = Decoder::try_from(file).map_err(|source| SoundError::Decode {
+                path: path.clone(),
+                source,
+            })?;
+            Ok(Box::new(decoder))
         }
     }
 }
@@ -166,14 +178,149 @@ pub fn check(sound: &Sound) -> Result<(), SoundError> {
 }
 
 /// Limits `source` as `playback` says.
-fn bound(
-    source: Box<dyn Source<Item = f32> + Send>,
-    playback: Playback,
-) -> Box<dyn Source<Item = f32> + Send> {
+fn bound(source: Box<dyn Source + Send>, playback: Playback) -> Box<dyn Source + Send> {
     match playback {
         Playback::Once { max } => Box::new(source.take_duration(max)),
         Playback::Loop { for_ } => Box::new(source.repeat_infinite().take_duration(for_)),
     }
+}
+
+/// Fits `source` to an output with `channels` channels, as rodio 0.16 did.
+///
+/// rodio 0.23's own conversion leaves every channel after the second silent, so on a 5.1 or 7.1
+/// output the mono built-in sounds and stereo files would play from the front pair only. rodio
+/// 0.16 copied the last channel of each frame into every extra channel, and [`FillChannels`] does
+/// that again. Outputs of one or two channels get `source` itself, so stereo output is exactly
+/// what rodio makes of it.
+#[must_use]
+pub fn fit_channels(
+    source: Box<dyn Source + Send>,
+    channels: ChannelCount,
+) -> Box<dyn Source + Send> {
+    if channels.get() <= 2 {
+        source
+    } else {
+        Box::new(FillChannels {
+            inner: source,
+            to: channels,
+            from: channels,
+            width: channels,
+            pos: 0,
+            last: 0.0,
+        })
+    }
+}
+
+/// Widens each frame of `inner` to `to` channels by repeating its last channel, like rodio 0.16's
+/// `ChannelCountConverter` (`conversions/channels.rs`). Frames with `to` or more channels pass
+/// through unchanged and are left to rodio.
+struct FillChannels {
+    inner: Box<dyn Source + Send>,
+    to: ChannelCount,
+    /// Channels of the input frame being read, and of the frame being written. Both are fixed at
+    /// the frame's first sample: once a span's last sample is read, `inner` may already report
+    /// the next span's channels while this frame still has repeats to write.
+    from: ChannelCount,
+    width: ChannelCount,
+    /// Position in that frame.
+    pos: u16,
+    /// The last sample read from `inner`.
+    last: Sample,
+}
+
+impl FillChannels {
+    /// The output width of a frame of `from` channels.
+    fn widen(&self, from: ChannelCount) -> ChannelCount {
+        from.max(self.to)
+    }
+}
+
+impl Iterator for FillChannels {
+    type Item = Sample;
+
+    fn next(&mut self) -> Option<Sample> {
+        if self.pos == 0 {
+            self.from = self.inner.channels();
+            self.width = self.widen(self.from);
+        }
+        if self.pos < self.from.get() {
+            self.last = self.inner.next()?;
+        }
+        self.pos += 1;
+        if self.pos == self.width.get() {
+            self.pos = 0;
+        }
+        Some(self.last)
+    }
+}
+
+impl Source for FillChannels {
+    fn current_span_len(&self) -> Option<usize> {
+        let from = usize::from(self.inner.channels().get());
+        let to = usize::from(self.channels().get());
+        self.inner.current_span_len().map(|len| len / from * to)
+    }
+
+    fn channels(&self) -> ChannelCount {
+        if self.pos == 0 {
+            self.widen(self.inner.channels())
+        } else {
+            self.width
+        }
+    }
+
+    fn sample_rate(&self) -> SampleRate {
+        self.inner.sample_rate()
+    }
+
+    fn total_duration(&self) -> Option<Duration> {
+        self.inner.total_duration()
+    }
+
+    fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
+        self.inner.try_seek(pos)?;
+        self.pos = 0;
+        Ok(())
+    }
+}
+
+/// Opens the default audio output device. This is the only code that opens it.
+///
+/// Nothing here may print: a line on stderr would land inside `--json` output and over the
+/// full-screen timer. So this mirrors how rodio 0.23 opens its default sink (`stream.rs`): the
+/// default device with its default config, else the first other device, skipping "null" drivers,
+/// that opens with any config it supports, else the first error. The one difference is that
+/// rodio's version prints to stderr when the devices cannot be listed; here that just returns the
+/// first error. The sink's own message on drop is switched off too.
+///
+/// # Errors
+/// Returns rodio's error if no audio output device can be opened. It is bare, so each caller
+/// words it: [`play`] as [`SoundError::Output`], the full-screen timer with its own prefix.
+pub fn open_output() -> Result<MixerDeviceSink, DeviceSinkError> {
+    use rodio::DeviceSinkBuilder;
+    use rodio::cpal::traits::{DeviceTrait, HostTrait};
+
+    let mut sink = DeviceSinkBuilder::from_default_device()
+        .and_then(DeviceSinkBuilder::open_stream)
+        .or_else(|first_error| {
+            let Ok(devices) = rodio::cpal::default_host().output_devices() else {
+                return Err(first_error);
+            };
+            devices
+                .filter(|device| {
+                    device
+                        .description()
+                        .is_ok_and(|d| d.driver().is_some_and(|driver| driver != "null"))
+                })
+                .find_map(|device| {
+                    DeviceSinkBuilder::from_device(device)
+                        .and_then(|builder| builder.open_sink_or_fallback())
+                        .ok()
+                })
+                .ok_or(first_error)
+        })?;
+    sink.log_on_drop(false);
+    Ok(sink)
 }
 
 /// Plays `sound` as `playback` says and blocks until it has finished.
@@ -182,14 +329,14 @@ fn bound(
 /// device.
 ///
 /// # Errors
-/// Returns the errors of [`source`], [`SoundError::Output`] if there is no audio output device,
-/// and [`SoundError::Playback`] if playback cannot start.
+/// Returns the errors of [`source`], and [`SoundError::Output`] if there is no audio output
+/// device.
 pub fn play(sound: &Sound, playback: Playback) -> Result<(), SoundError> {
     let source = bound(source(sound)?, playback);
-    let (_stream, handle) = OutputStream::try_default()?;
-    let sink = Sink::try_new(&handle)?;
-    sink.append(source);
-    sink.sleep_until_end();
+    let output = open_output()?;
+    let player = Player::connect_new(output.mixer());
+    player.append(fit_channels(source, output.config().channel_count()));
+    player.sleep_until_end();
     Ok(())
 }
 
@@ -309,8 +456,8 @@ mod tests {
     fn built_in_sources_are_mono_at_the_stated_rate() {
         for sound in [Sound::Alarm, Sound::Chime] {
             let src = source(&sound).unwrap();
-            assert_eq!(src.channels(), 1);
-            assert_eq!(src.sample_rate(), SAMPLE_RATE);
+            assert_eq!(src.channels().get(), 1);
+            assert_eq!(src.sample_rate().get(), SAMPLE_RATE);
         }
     }
 
@@ -325,8 +472,8 @@ mod tests {
         let path = write_wav("valid.wav", 800);
         assert!(check(&Sound::File(path.clone())).is_ok());
         let src = source(&Sound::File(path.clone())).unwrap();
-        assert_eq!(src.sample_rate(), 8_000);
-        assert_eq!(src.channels(), 1);
+        assert_eq!(src.sample_rate().get(), 8_000);
+        assert_eq!(src.channels().get(), 1);
         assert_eq!(src.count(), 800);
         std::fs::remove_file(path).unwrap();
     }
@@ -346,6 +493,116 @@ mod tests {
         assert!(matches!(err, SoundError::Decode { .. }), "{err:?}");
         assert!(source(&Sound::File(path.clone())).is_err());
         std::fs::remove_file(path).unwrap();
+    }
+
+    fn fixture(name: &str) -> PathBuf {
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures")).join(name)
+    }
+
+    #[test]
+    fn real_mp3_flac_and_ogg_files_decode() {
+        for name in ["tone.mp3", "tone.flac", "tone.ogg"] {
+            let sound = Sound::File(fixture(name));
+            check(&sound).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let src = source(&sound).unwrap();
+            assert_eq!(src.channels().get(), 1, "{name}");
+            assert_eq!(src.sample_rate().get(), 22_050, "{name}");
+            let count = src.count();
+            assert!(
+                (11_025 - 2_205..=11_025 + 2_205).contains(&count),
+                "{name}: {count} samples"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fixture_without_an_extension_still_decodes() {
+        let pid = std::process::id();
+        for (from, to) in [
+            ("tone.ogg", format!("cli-timer-{pid}-noext")),
+            ("tone.mp3", format!("cli-timer-{pid}-UPPER.MP3")),
+        ] {
+            let path = std::env::temp_dir().join(to);
+            std::fs::copy(fixture(from), &path).unwrap();
+            let result = check(&Sound::File(path.clone()));
+            std::fs::remove_file(&path).unwrap();
+            result.unwrap_or_else(|e| panic!("{from} as {}: {e}", path.display()));
+        }
+    }
+
+    #[test]
+    fn a_text_file_reports_unrecognized_format() {
+        let path = std::env::temp_dir().join(format!("cli-timer-{}-words.txt", std::process::id()));
+        std::fs::write(&path, "this is plainly not audio, just some text\n").unwrap();
+        let err = check(&Sound::File(path.clone())).unwrap_err();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "cannot decode sound file {}: Unrecognized format",
+                path.display()
+            )
+        );
+    }
+
+    /// The first `len` bytes of `bytes`, in a fresh temp file called `name`.
+    fn truncated_copy(bytes: &[u8], len: usize, name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("cli-timer-{}-{name}", std::process::id()));
+        std::fs::write(&path, &bytes[..len]).unwrap();
+        path
+    }
+
+    #[test]
+    fn a_truncated_flac_reports_end_of_stream() {
+        let flac = std::fs::read(fixture("tone.flac")).unwrap();
+        let path = truncated_copy(&flac, 300, "cut.flac");
+        let err = check(&Sound::File(path.clone())).unwrap_err();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            err.to_string(),
+            format!("cannot decode sound file {}: end of stream", path.display())
+        );
+    }
+
+    #[test]
+    fn a_wav_cut_off_before_its_data_reports_end_of_stream() {
+        let whole = write_wav("whole.wav", 800);
+        let wav = std::fs::read(&whole).unwrap();
+        std::fs::remove_file(whole).unwrap();
+        // 36 bytes: RIFF header and fmt chunk, no data chunk.
+        let path = truncated_copy(&wav, 36, "no-data.wav");
+        let err = check(&Sound::File(path.clone())).unwrap_err();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            err.to_string(),
+            format!("cannot decode sound file {}: end of stream", path.display())
+        );
+    }
+
+    #[test]
+    fn every_decoder_error_reads_as_it_did_with_rodio_0_16() {
+        // rodio 0.16's `Display` for `DecoderError` (decoder/mod.rs), which `-s` errors showed.
+        let cases = [
+            (DecoderError::UnrecognizedFormat, "Unrecognized format"),
+            (
+                DecoderError::IoError("end of stream".to_owned()),
+                "end of stream",
+            ),
+            (DecoderError::DecodeError("bad packet"), "bad packet"),
+            (DecoderError::LimitError("too big"), "too big"),
+            (DecoderError::ResetRequired, "Reset required"),
+            (DecoderError::NoStreams, "No streams"),
+        ];
+        for (error, text) in cases {
+            assert_eq!(decode_detail(&error), text, "{error:?}");
+        }
+    }
+
+    #[test]
+    fn an_adpcm_wav_is_rejected_as_undecodable() {
+        // `-s` takes PCM wav only (chosen 2026-10-27); rodio's `symphonia-adpcm` stays off.
+        let err = check(&Sound::File(fixture("tone-adpcm.wav"))).unwrap_err();
+        assert!(matches!(err, SoundError::Decode { .. }), "{err:?}");
     }
 
     #[test]
@@ -390,6 +647,98 @@ mod tests {
         let alarm = collect(&Sound::Alarm);
         assert_eq!(looped[..cycle], alarm[..]);
         assert_eq!(looped[cycle..2 * cycle], alarm[..]);
+    }
+
+    /// `samples` as a source of `channels` interleaved channels.
+    fn buffer(channels: u16, samples: &[f32]) -> Box<dyn Source + Send> {
+        let channels = ChannelCount::new(channels).unwrap();
+        Box::new(SamplesBuffer::new(channels, RATE, samples.to_vec()))
+    }
+
+    const SIX: ChannelCount = rodio::nz!(6);
+
+    #[test]
+    fn mono_fills_all_six_channels_as_rodio_0_16_did() {
+        let six = fit_channels(buffer(1, &[0.1, 0.2, 0.3]), SIX);
+        assert_eq!(six.channels(), SIX);
+        assert_eq!(six.sample_rate(), RATE);
+        assert_eq!(six.current_span_len(), Some(18));
+        let samples: Vec<f32> = six.collect();
+        assert_eq!(samples, [[0.1; 6], [0.2; 6], [0.3; 6]].concat());
+    }
+
+    #[test]
+    fn stereo_repeats_its_right_channel_into_the_four_extra_channels() {
+        let six = fit_channels(buffer(2, &[0.1, 0.2, 0.3, 0.4]), SIX);
+        assert_eq!(six.channels(), SIX);
+        assert_eq!(six.current_span_len(), Some(12));
+        let samples: Vec<f32> = six.collect();
+        assert_eq!(
+            samples,
+            [0.1, 0.2, 0.2, 0.2, 0.2, 0.2, 0.3, 0.4, 0.4, 0.4, 0.4, 0.4]
+        );
+    }
+
+    #[test]
+    fn the_alarm_fills_six_channels_for_its_whole_cycle() {
+        let alarm = collect(&Sound::Alarm);
+        let six: Vec<f32> = fit_channels(source(&Sound::Alarm).unwrap(), SIX).collect();
+        let expected: Vec<f32> = alarm.iter().flat_map(|s| [*s; 6]).collect();
+        assert_eq!(six, expected);
+    }
+
+    #[test]
+    fn a_mono_frame_is_finished_before_a_stereo_span_starts() {
+        // rodio's queue reports the next source's channels as soon as the current one's last
+        // sample is read, which is in the middle of the widened frame.
+        let (input, output) = rodio::queue::queue(false);
+        input.append(SamplesBuffer::new(MONO, RATE, vec![0.1]));
+        input.append(SamplesBuffer::new(
+            rodio::nz!(2),
+            RATE,
+            vec![0.2, 0.3, 0.4, 0.5],
+        ));
+        let samples: Vec<f32> = fit_channels(Box::new(output), SIX).collect();
+        assert_eq!(
+            samples,
+            [
+                [0.1; 6],
+                [0.2, 0.3, 0.3, 0.3, 0.3, 0.3],
+                [0.4, 0.5, 0.5, 0.5, 0.5, 0.5]
+            ]
+            .concat()
+        );
+    }
+
+    #[test]
+    fn a_stereo_output_gets_mono_and_stereo_sources_unchanged() {
+        for (channels, samples) in [(1, vec![0.1, 0.2, 0.3]), (2, vec![0.1, 0.2, 0.3, 0.4])] {
+            let src = fit_channels(buffer(channels, &samples), rodio::nz!(2));
+            assert_eq!(src.channels().get(), channels);
+            assert_eq!(src.current_span_len(), Some(samples.len()));
+            assert_eq!(src.collect::<Vec<f32>>(), samples, "{channels} channels");
+        }
+    }
+
+    #[test]
+    fn a_source_as_wide_as_the_output_or_wider_passes_through() {
+        // rodio drops the extra channels of a wider source, in 0.16 and 0.23 alike.
+        for channels in [6, 8] {
+            let samples: Vec<f32> = (0..channels * 2).map(|i| f32::from(i) / 100.0).collect();
+            let src = fit_channels(buffer(channels, &samples), SIX);
+            assert_eq!(src.channels().get(), channels);
+            assert_eq!(src.current_span_len(), Some(samples.len()));
+            assert_eq!(src.collect::<Vec<f32>>(), samples, "{channels} channels");
+        }
+    }
+
+    #[test]
+    fn remind_and_ding_still_word_a_missing_output_the_same_way() {
+        let err = SoundError::from(DeviceSinkError::NoDevice);
+        assert_eq!(
+            err.to_string(),
+            "no audio output available: Could not find any output device"
+        );
     }
 
     #[test]

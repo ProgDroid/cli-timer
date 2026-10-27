@@ -5,3 +5,6 @@
 .beads/hooks/* text eol=lf
 .beads/*.sh text eol=lf
 .beads/issues.jsonl -text
+
+# Binary sound fixtures: no line-ending conversion, and not treated as text.
+tests/fixtures/** -text

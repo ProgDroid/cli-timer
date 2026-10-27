@@ -1,6 +1,6 @@
 {
   "name": "cli-timer",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Teaches Claude Code to set reminders and done alerts with the cli-timer binary: a sound and a desktop pop-up on your own machine.",
   "repository": "https://github.com/ProgDroid/cli-timer",
   "license": "GPL-3.0-or-later",

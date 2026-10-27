@@ -1,6 +1,6 @@
 # cli-timer
 
-Rust CLI countdown timer: `tui` 0.19 + crossterm for the full-screen UI, rodio for sound.
+Rust CLI countdown timer: `ratatui` 0.30 (re-exports crossterm 0.29) for the full-screen UI, rodio for sound.
 
 ## Commands
 - Format: `cargo fmt --all`

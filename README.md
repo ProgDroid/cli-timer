@@ -12,7 +12,8 @@ It does three things:
 
 `cli-timer -t 25m -s /path/to/sound/file -l "Optional label for when the timer goes off"`
 
-`-s` is optional: without it you get a built-in alarm. The label is optional too.
+`-s` is optional: without it you get a built-in alarm. The label is optional too. Sound files,
+here and for `remind` and `ding`, can be mp3, flac, ogg vorbis or wav (PCM).
 
 Durations can be `hh:mm:ss` (one to three parts; the first part is hours, so a bare `5` is five
 hours) or short forms like `90s`, `20m`, `1h30m` and `2h`. The longest is 100 days.

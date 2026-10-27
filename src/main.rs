@@ -9,10 +9,10 @@ use cli_timer::handler::handle_key_events;
 use cli_timer::remind;
 use cli_timer::sound;
 use cli_timer::tui::Tui;
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 use std::io;
 use std::process::ExitCode;
-use tui::Terminal;
-use tui::backend::CrosstermBackend;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
