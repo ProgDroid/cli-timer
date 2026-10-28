@@ -1,7 +1,7 @@
 # NEXT
 
 ## Where we are
-**v0.2.3 is merged into `main` but not tagged or released yet** (2026-10-28). It fixes a bug that
+**v0.2.3 is released** (2026-10-28, all four archives, notes written). It fixes a bug that
 shipped in v0.2.2: a looped `-s` sound was silent for **Ogg Vorbis files and for MP3s at 24 kHz or
 below**.
 - `remind -s x.ogg` skipped its ring: when the time was up it printed "fired" within about 70 ms
@@ -23,7 +23,7 @@ device, and failed before the fix. Design, plan and six reviews:
 `docs/superpowers/specs/2026-10-28-*`, `docs/superpowers/plans/2026-10-28-silent-loop-fix.md`,
 `docs/superpowers/reviews/2026-10-28-*`.
 
-There is no open work in `bd`. Not done yet: pushing `main`, release notes, and the v0.2.3 tag.
+There is no open work in `bd`. The next piece of work is a pick from `docs/parking-lot.md`.
 
 ## How to run
 - Install: `cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or a
@@ -43,7 +43,9 @@ Exit codes: 0 ok, 1 failed before anything fired, 3 fired but the sound or pop-u
 Cancelling a reminder in Claude Code kills the process, which also stops a ringing alarm.
 
 ## Try this
-Install this checkout first (`cargo install --locked --force --path .`), then, from the repo root:
+Already checked on Windows from this checkout. Nothing new since; optionally reinstall from the
+release (`cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or the
+archive) and rerun these from the repo root:
 - `cli-timer remind 3s -s tests/fixtures/tone.ogg --ring 5s`: a short beep repeating for about 5 s
   (in 0.2.2 this printed "fired" at once, silently).
 - `cli-timer -t 3s -s tests/fixtures/tone.ogg`: the beep fades in and keeps repeating until you
@@ -74,11 +76,10 @@ Install this checkout first (`cargo install --locked --force --path .`), then, f
 - A reminder fires late, twice, or not at all, or a `cli-timer.exe` lingers after one ends.
 
 ## Housekeeping
-- **To release v0.2.3** (the version is already bumped in both `Cargo.toml` and
-  `plugin/.claude-plugin/plugin.json`): push `main`, do a manual release run (dry run) and check
-  four archives appear, then push the `v0.2.3` tag (lightweight), then write the release notes by
-  hand (`gh release edit v0.2.3 --notes-file <file>`) from the "Release" section of
-  `docs/superpowers/specs/2026-10-28-silent-loop-fix-design.md`.
+- **To release a version**: bump `version` in both `Cargo.toml` and
+  `plugin/.claude-plugin/plugin.json`, push `main`, do a manual release run (dry run) and check
+  four archives appear, then push the `vX.Y.Z` tag (lightweight), then write the release notes by
+  hand (`gh release edit vX.Y.Z --notes-file <file>`).
 - **Bumping Rust is a deliberate change**: edit `channel` in `rust-toolchain.toml`, run
   `cargo clippy --all-targets -- -D warnings` and `cargo test`, fix any new lints in the same
   change.
@@ -95,6 +96,9 @@ Linux sound and pop-ups have not been checked by a person since 0.2.2.
 
 ## Feedback log
 _Your answers to the session-start question, dated, newest first._
+- 2026-10-28 (later): "I tested the steps from last session and all was good" (the v0.2.3
+  "Try this" checks on Windows). Asked to release; v0.2.3 tagged and published with all four
+  archives.
 - 2026-10-28: "Still all good" (v0.2.2). Picked the small hardening batch next (surround span
   fix, hyphen-leading full-screen `-l`/`-s` values, version in release archive names). After the
   reviews, agreed to: rewire surround properly (then parked when the silent-loop bug turned up),
