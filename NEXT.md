@@ -1,29 +1,28 @@
 # NEXT
 
 ## Where we are
-**v0.2.3 is released** (2026-10-28, all four archives, notes written). It fixes a bug that
-shipped in v0.2.2: a looped `-s` sound was silent for **Ogg Vorbis files and for MP3s at 24 kHz or
-below**.
-- `remind -s x.ogg` skipped its ring: when the time was up it printed "fired" within about 70 ms
-  and never made a sound.
-- The full-screen timer with `-s x.ogg` stayed silent until a key was pressed.
-- `ding -s x.ogg` was fine, and so were 44.1/48 kHz MP3s, FLAC and WAV. That is why your v0.2.2
-  check with an mp3 passed.
+**v0.2.3 is released** (2026-10-28), with the silent-loop fix: a looped `-s` Ogg or low-rate MP3
+no longer rings silent.
 
-The cause: rodio 0.23's decoder says the first chunk of such files is empty, and the looping code
-took that as the end of the sound. Files now loop through rodio's own looping decoder, which goes
-back to the start of the file. The built-in alarm is unchanged. As a side effect, a looped file is
-no longer kept in memory as it plays (that only mattered for long files with long rings).
+**On `main`, not released (2026-10-28): the Linux release build moved off `ubuntu-22.04`.**
+GitHub removes that runner image on 2027-04-17, with brownout windows (jobs fail on purpose) on
+March 23, March 30, April 6 and April 13, 2027. The Linux archive now builds on a pinned
+`ubuntu-24.04`. Nothing changes for you on Windows. What changes on Linux, from the next release:
+- The binary still runs back to glibc 2.34 (Ubuntu 22.04, Debian 12, RHEL 9), but on anything
+  older than Ubuntu 24.04 it prints one harmless line on stderr every run:
+  ``weak version `GLIBC_2.39' not found``. Measured in Docker on all three; stdout and the JSON
+  lines are unchanged. The README says so, and the timer skill tells Claude to ignore it.
+- You chose to accept that line rather than build in an older container, and to have no CI check
+  on which glibc the binary needs (old distros are not a priority).
 
-How we got here: the session started on a three-item "hardening batch" from the parking lot.
-Reviews showed two items were not worth doing (written up in the parking lot as declined), and the
-third, the 5.1/7.1 surround work, turned up both a bigger surround problem (now parked) and this
-bug. 204 tests pass on Windows; new tests play sound through rodio's real playback path with no
-device, and failed before the fix. Design, plan and six reviews:
-`docs/superpowers/specs/2026-10-28-*`, `docs/superpowers/plans/2026-10-28-silent-loop-fix.md`,
-`docs/superpowers/reviews/2026-10-28-*`.
+Verified: a release dry run from the branch built all four archives on the 24.04 image, and its
+Linux binary needs glibc 2.34 with 2.39 only optional. Design, plan, two red teams:
+`docs/superpowers/specs/2026-10-28-ci-runner-retirement-design.md`,
+`docs/superpowers/plans/2026-10-28-ci-runner-retirement.md`,
+`docs/superpowers/reviews/2026-10-28-ci-runner-retirement-*`.
 
-There is no open work in `bd`. The next piece of work is a pick from `docs/parking-lot.md`.
+There is no open work in `bd`. No release is needed for this: it takes effect whenever the next
+version is tagged. The next piece of work is a pick from `docs/parking-lot.md`.
 
 ## How to run
 - Install: `cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or a
@@ -43,9 +42,13 @@ Exit codes: 0 ok, 1 failed before anything fired, 3 fired but the sound or pop-u
 Cancelling a reminder in Claude Code kills the process, which also stops a ringing alarm.
 
 ## Try this
-Already checked on Windows from this checkout. Nothing new since; optionally reinstall from the
-release (`cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or the
-archive) and rerun these from the repo root:
+Nothing to try on Windows for the runner move: it only changes how the Linux archive is built.
+If you have a Linux machine or WSL distro older than Ubuntu 24.04, after the next release run
+`cli-timer --version` there: it should print the version plus the one harmless glibc line.
+
+The v0.2.3 checks below were already done on Windows; optionally reinstall from the release
+(`cargo install --locked --force --git https://github.com/ProgDroid/cli-timer`, or the archive)
+and rerun them from the repo root:
 - `cli-timer remind 3s -s tests/fixtures/tone.ogg --ring 5s`: a short beep repeating for about 5 s
   (in 0.2.2 this printed "fired" at once, silently).
 - `cli-timer -t 3s -s tests/fixtures/tone.ogg`: the beep fades in and keeps repeating until you
@@ -67,6 +70,10 @@ archive) and rerun these from the repo root:
 - A sound file deleted after the timer started still fails silently when the timer ends.
 - The toast shows as coming from "Windows PowerShell" (accepted).
 - Reminders die if you exit Claude Code (accepted; the detached design is in the parking lot).
+- The new timer-skill line about the glibc warning reaches your local install at once, but
+  GitHub plugin installs only get it at the next version bump (the plugin version is tied to the
+  crate version). That is also when the first 24.04-built binary ships, so nobody sees one without
+  the other.
 
 ## Tell me if
 - Any `-s` file that rang in 0.2.2 sounds different when it loops, or stops early.
@@ -74,6 +81,8 @@ archive) and rerun these from the repo root:
 - The full-screen alarm no longer fades in.
 - `--json` ever prints anything that is not a JSON line.
 - A reminder fires late, twice, or not at all, or a `cli-timer.exe` lingers after one ends.
+- The next release's dry run shows any Linux build failure, or a Linux user reports the binary
+  will not start (rather than just printing the glibc line).
 
 ## Housekeeping
 - **To release a version**: bump `version` in both `Cargo.toml` and
@@ -84,8 +93,10 @@ archive) and rerun these from the repo root:
   `cargo clippy --all-targets -- -D warnings` and `cargo test`, fix any new lints in the same
   change.
 - No PRs: work on a branch, squash-merge into `main` locally with a `handoff:` subject, push
-  `main`. The `silent-loop-fix` branch is squash-merged and safe to delete; so is `deps-refresh`
-  (locally and on GitHub).
+  `main`. The `silent-loop-fix` and `deps-refresh` branches are squash-merged and safe to delete
+  (locally and on GitHub); `ci-runner-2404` was deleted after its merge.
+- `ubuntu-24.04` itself will retire around 2029; the comment on the Linux row in
+  `.github/workflows/release.yml` says what the pin is for.
 
 ## Known rough edges
 See `docs/parking-lot.md`: the surround output rewire (parked, with why); rodio 0.23 is an
@@ -98,7 +109,10 @@ Linux sound and pop-ups have not been checked by a person since 0.2.2.
 _Your answers to the session-start question, dated, newest first._
 - 2026-10-28 (later): "I tested the steps from last session and all was good" (the v0.2.3
   "Try this" checks on Windows). Asked to release; v0.2.3 tagged and published with all four
-  archives.
+  archives. Then picked the CI runner retirement. Does not care much about old Linux distros;
+  pinned `ubuntu-24.04`, accepted the harmless glibc warning over an older build container, no CI
+  or release-checklist glibc check, native execution, fix all five final-review minors, merge
+  into `main` locally.
 - 2026-10-28: "Still all good" (v0.2.2). Picked the small hardening batch next (surround span
   fix, hyphen-leading full-screen `-l`/`-s` values, version in release archive names). After the
   reviews, agreed to: rewire surround properly (then parked when the silent-loop bug turned up),

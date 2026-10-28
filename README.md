@@ -65,7 +65,9 @@ Or skip Rust and download a ready-made binary for Windows, macOS (Apple silicon 
 from [Releases](https://github.com/ProgDroid/cli-timer/releases). Unpack it and put `cli-timer`
 somewhere on your `PATH`. Each archive has a `.sha256` file next to it. The Windows and Linux
 binaries are 64-bit x86 only (use `cargo install` on ARM), and the Linux one needs the ALSA runtime
-library (`libasound2` on Debian and Ubuntu).
+library (`libasound2` on Debian and Ubuntu). The Linux binary is built on Ubuntu 24.04; on older
+distros (back to Ubuntu 22.04, Debian 12 and RHEL 9) it still runs, but prints a harmless
+``weak version `GLIBC_2.39' not found`` line each time.
 
 Check it worked with `cli-timer --version`.
 

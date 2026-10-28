@@ -2,7 +2,8 @@ name: release
 
 # A pushed tag `vX.Y.Z` builds every platform and publishes a GitHub release.
 # A manual run (workflow_dispatch) is a dry run: it builds and uploads the archives as workflow
-# artifacts but publishes nothing. GitHub only dispatches workflows on the default branch.
+# artifacts but publishes nothing. The workflow must exist on the default branch to be dispatched;
+# `gh workflow run release.yml --ref <branch>` then runs that branch's copy.
 on:
   push:
     tags:
@@ -51,8 +52,11 @@ jobs:
           - os: macos-latest
             target: x86_64-apple-darwin
             archive: tar.gz
-          # Older glibc than ubuntu-latest, so the binary runs on more distros.
-          - os: ubuntu-22.04
+          # Pinned, not ubuntu-latest, so the build image only changes when this line does (the
+          # glibc symbols the binary needs also follow the Rust toolchain and dependencies). A
+          # 24.04 build still runs back to glibc 2.34 (Ubuntu 22.04, Debian 12, RHEL 9); their
+          # loader prints a harmless "weak version `GLIBC_2.39' not found" line.
+          - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
     steps:

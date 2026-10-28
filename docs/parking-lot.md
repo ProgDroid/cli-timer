@@ -23,7 +23,12 @@ came from, and a pointer to a detail doc when there is one.
   2026-10-22, agent-timer build (final review m5).
 - **CI runner retirement**: `release.yml` pins `ubuntu-22.04` for an older glibc; GitHub will retire
   that image, so move to a container or `ubuntu-24.04` then. `Swatinem/rust-cache` is only in
-  `check.yml` now. 2026-10-22, agent-timer build (final review, ledger Task 8).
+  `check.yml` now. 2026-10-22, agent-timer build (final review, ledger Task 8). **Done
+  2026-10-28**: the Linux release builds on `ubuntu-24.04` (22.04 retires 2027-04-17). Older
+  distros (glibc 2.34 to 2.38) still run it, with a harmless weak-version `GLIBC_2.39` loader
+  warning. Declined: a CI guard on the binary's glibc floor, and building in an older container
+  to avoid the warning (old-distro reach is not a priority). Caching the release build: not worth
+  it for a few releases a year (`superpowers/specs/2026-10-28-ci-runner-retirement-design.md`).
 - **Release archive names carry no version** (`cli-timer-<target>.zip`); add the tag if people keep
   several. 2026-10-22, agent-timer build (ledger Task 8). **Declined 2026-10-28**: a version in the
   archive's folder name changes every release, so a PATH entry set up for the last one keeps running

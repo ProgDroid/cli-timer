@@ -28,6 +28,10 @@ done alert alongside other work, still do that work.
 Run `cli-timer --version`. It prints `cli-timer X.Y.Z`. You need **0.2.0 or newer** (the first
 release with `remind` and `ding`).
 
+On Linux older than glibc 2.39, every command may also print ``weak version `GLIBC_2.39' not found``
+on stderr, possibly before the first JSON line. It is harmless: ignore it, and never give it as
+the reason a pop-up or sound failed.
+
 If the command is missing or older, **do not set the alert**: tell the user how to install or
 upgrade (both routes below). Do not improvise another timer (no `sleep` loops, `at`, cron,
 `osascript`, or your own scheduling tools). Whatever else they asked for, still do it.
