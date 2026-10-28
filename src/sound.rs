@@ -4,14 +4,14 @@
 //! no audio device to build. Only [`open_output`] opens the output device.
 
 use rodio::buffer::SamplesBuffer;
-use rodio::decoder::DecoderError;
+use rodio::decoder::{DecoderBuilder, DecoderError};
 use rodio::source::SeekError;
 use rodio::{
     ChannelCount, Decoder, DeviceSinkError, MixerDeviceSink, Player, Sample, SampleRate, Source,
 };
 use std::fs::File;
-use std::io;
-use std::path::PathBuf;
+use std::io::{self, BufReader};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Sample rate of the built-in sounds, in Hz.
@@ -31,6 +31,9 @@ pub const DEFAULT_RING: Duration = Duration::from_secs(30);
 
 /// A sound file given to `ding` is cut off after this long.
 pub const DING_FILE_MAX: Duration = Duration::from_secs(5);
+
+/// The full-screen alarm fades in over this long.
+const ALARM_FADE_IN: Duration = Duration::from_millis(500);
 
 /// Peak level of the built-in sounds (full scale is 1.0).
 const AMPLITUDE: f32 = 0.3;
@@ -156,16 +159,36 @@ pub fn source(sound: &Sound) -> Result<Box<dyn Source + Send>, SoundError> {
         Sound::Alarm => Ok(Box::new(SamplesBuffer::new(MONO, RATE, alarm_samples()))),
         Sound::Chime => Ok(Box::new(SamplesBuffer::new(MONO, RATE, chime_samples()))),
         Sound::File(path) => {
-            let file = File::open(path).map_err(|source| SoundError::Open {
-                path: path.clone(),
-                source,
-            })?;
-            let decoder = Decoder::try_from(file).map_err(|source| SoundError::Decode {
-                path: path.clone(),
-                source,
-            })?;
+            let decoder = file_decoder(path)?
+                .build()
+                .map_err(|source| decode_error(path, source))?;
             Ok(Box::new(decoder))
         }
+    }
+}
+
+/// Opens the file at `path` for decoding, set up as rodio's `Decoder::try_from(File)` sets it up
+/// (`decoder/mod.rs`): buffered, with its length, and seekable.
+fn file_decoder(path: &Path) -> Result<DecoderBuilder<BufReader<File>>, SoundError> {
+    let file = File::open(path).map_err(|source| SoundError::Open {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    // `Decoder::try_from(File)` reports a failed metadata read as a decode error; so does this.
+    let len = file
+        .metadata()
+        .map_err(|e| decode_error(path, DecoderError::IoError(e.to_string())))?
+        .len();
+    Ok(Decoder::builder()
+        .with_data(BufReader::new(file))
+        .with_byte_len(len)
+        .with_seekable(true))
+}
+
+fn decode_error(path: &Path, source: DecoderError) -> SoundError {
+    SoundError::Decode {
+        path: path.to_path_buf(),
+        source,
     }
 }
 
@@ -177,12 +200,42 @@ pub fn check(sound: &Sound) -> Result<(), SoundError> {
     source(sound).map(drop)
 }
 
-/// Limits `source` as `playback` says.
-fn bound(source: Box<dyn Source + Send>, playback: Playback) -> Box<dyn Source + Send> {
-    match playback {
-        Playback::Once { max } => Box::new(source.take_duration(max)),
-        Playback::Loop { for_ } => Box::new(source.repeat_infinite().take_duration(for_)),
+/// Opens `sound` as a source that repeats it without end: no fade, no time limit.
+///
+/// A file loops through rodio's looping decoder, which seeks back to the start and decodes again.
+/// `repeat_infinite()` would not do for files: rodio's decoders report an empty first span for
+/// Ogg Vorbis and for MP3 at 24 kHz or below, and `repeat_infinite()` (rodio's `Buffered`) reads
+/// that as the end, so the loop would be silent. It would also keep every decoded sample in
+/// memory as it plays. The built-in sounds are in memory already, so they keep it.
+///
+/// # Errors
+/// Fails exactly when [`source`] does.
+pub fn looped(sound: &Sound) -> Result<Box<dyn Source + Send>, SoundError> {
+    match sound {
+        Sound::Alarm | Sound::Chime => Ok(Box::new(source(sound)?.repeat_infinite())),
+        Sound::File(path) => {
+            let decoder = file_decoder(path)?
+                .build_looped()
+                .map_err(|source| decode_error(path, source))?;
+            Ok(Box::new(decoder))
+        }
     }
+}
+
+/// Opens `sound` as the full-screen timer's alarm: [`looped`], fading in over 500 ms.
+///
+/// # Errors
+/// Fails exactly when [`source`] does.
+pub fn alarm_loop(sound: &Sound) -> Result<Box<dyn Source + Send>, SoundError> {
+    Ok(Box::new(looped(sound)?.fade_in(ALARM_FADE_IN)))
+}
+
+/// Opens `sound` and limits it as `playback` says.
+fn bound(sound: &Sound, playback: Playback) -> Result<Box<dyn Source + Send>, SoundError> {
+    Ok(match playback {
+        Playback::Once { max } => Box::new(source(sound)?.take_duration(max)),
+        Playback::Loop { for_ } => Box::new(looped(sound)?.take_duration(for_)),
+    })
 }
 
 /// Fits `source` to an output with `channels` channels, as rodio 0.16 did.
@@ -332,7 +385,7 @@ pub fn open_output() -> Result<MixerDeviceSink, DeviceSinkError> {
 /// Returns the errors of [`source`], and [`SoundError::Output`] if there is no audio output
 /// device.
 pub fn play(sound: &Sound, playback: Playback) -> Result<(), SoundError> {
-    let source = bound(source(sound)?, playback);
+    let source = bound(sound, playback)?;
     let output = open_output()?;
     let player = Player::connect_new(output.mixer());
     player.append(fit_channels(source, output.config().channel_count()));
@@ -616,30 +669,33 @@ mod tests {
     #[test]
     fn once_stops_at_max_or_at_the_end_of_the_sound() {
         let cut = bound(
-            source(&Sound::Alarm).unwrap(),
+            &Sound::Alarm,
             Playback::Once {
                 max: Duration::from_millis(500),
             },
-        );
+        )
+        .unwrap();
         assert_eq!(cut.count(), n(500));
 
         let whole = bound(
-            source(&Sound::Alarm).unwrap(),
+            &Sound::Alarm,
             Playback::Once {
                 max: Duration::from_secs(10),
             },
-        );
+        )
+        .unwrap();
         assert_eq!(whole.count(), n(1350));
     }
 
     #[test]
     fn loop_repeats_the_cycle_for_the_requested_time_then_stops() {
         let looped: Vec<f32> = bound(
-            source(&Sound::Alarm).unwrap(),
+            &Sound::Alarm,
             Playback::Loop {
                 for_: Duration::from_secs(3),
             },
         )
+        .unwrap()
         .collect();
         // rodio rounds the cut-off to a frame or two, so allow a few samples either way.
         assert!(looped.len().abs_diff(n(3000)) <= 8, "{}", looped.len());
@@ -757,5 +813,179 @@ mod tests {
         assert_eq!(DING_FILE_MAX, Duration::from_secs(5));
         assert_eq!(SAMPLE_RATE, 48_000);
         assert!(DEFAULT_RING <= MAX_RING);
+    }
+
+    /// Samples louder than this count as sound. The fixtures are a sine at amplitude 0.125.
+    const PEAK: f32 = 0.05;
+
+    /// Plays `src` the way the app does (a `Player` on a mixer, behind [`fit_channels`]) on a
+    /// mono mixer at `rate` with no device, and returns its first `n` output samples. The
+    /// player keeps the output alive after the sound ends, so the result is always `n` long.
+    fn through_player(src: Box<dyn Source + Send>, rate: u32, n: usize) -> Vec<f32> {
+        let (mixer, output) = rodio::mixer::mixer(MONO, SampleRate::new(rate).unwrap());
+        let player = Player::connect_new(&mixer);
+        player.append(fit_channels(src, MONO));
+        let samples = output.take(n).collect();
+        drop(player);
+        samples
+    }
+
+    fn loud(samples: &[f32]) -> usize {
+        samples.iter().filter(|s| s.abs() > PEAK).count()
+    }
+
+    /// Samples in one play of fixture `name`.
+    fn one_play(name: &str) -> usize {
+        source(&Sound::File(fixture(name))).unwrap().count()
+    }
+
+    #[test]
+    fn looped_files_sound_every_time_round_through_the_player() {
+        // tone.flac is the control: it looped before the fix too.
+        for name in ["tone.ogg", "tone.mp3", "tone.flac"] {
+            let p = one_play(name);
+            let out = through_player(looped(&Sound::File(fixture(name))).unwrap(), 22_050, 3 * p);
+            for w in 0..3 {
+                // measured: about 0.72 p loud samples per play
+                let count = loud(&out[w * p..(w + 1) * p]);
+                assert!(
+                    count > p * 6 / 10,
+                    "{name}: play {} has {count} loud",
+                    w + 1
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn looped_files_repeat_exactly() {
+        for name in ["tone.ogg", "tone.mp3", "tone.flac"] {
+            let p = one_play(name);
+            let out: Vec<f32> = looped(&Sound::File(fixture(name)))
+                .unwrap()
+                .take(3 * p)
+                .collect();
+            assert_eq!(out.len(), 3 * p, "{name}");
+            assert_eq!(
+                out[p..2 * p],
+                out[2 * p..],
+                "{name}: play 3 differs from play 2"
+            );
+        }
+    }
+
+    #[test]
+    fn the_full_screen_alarm_sounds_after_its_fade_in() {
+        for name in ["tone.ogg", "tone.mp3"] {
+            let p = one_play(name);
+            let alarm = alarm_loop(&Sound::File(fixture(name))).unwrap();
+            let out = through_player(alarm, 22_050, 3 * p);
+            // the first 100 ms are still fading in: none loud (about 1 450 without the fade)
+            assert_eq!(loud(&out[..2_205]), 0, "{name}: no fade-in");
+            // the fade-in covers play 1; plays 2 and 3 have about 0.72 p loud samples each
+            let count = loud(&out[p..]);
+            assert!(
+                count > p * 12 / 10,
+                "{name}: {count} loud after the fade-in"
+            );
+        }
+    }
+
+    #[test]
+    fn a_looped_file_rings_for_the_requested_time() {
+        for name in ["tone.ogg", "tone.mp3", "tone.flac"] {
+            let ring = bound(
+                &Sound::File(fixture(name)),
+                Playback::Loop {
+                    for_: Duration::from_secs(2),
+                },
+            )
+            .unwrap();
+            // TakeDuration truncates the nanoseconds per sample, so its error grows with ring
+            // time, rate and channels; 2 s of 22.05 kHz mono lands exactly on 44 100.
+            assert_eq!(ring.count(), 44_100, "{name}");
+        }
+    }
+
+    #[test]
+    fn one_play_of_each_fixture_through_the_player_has_sound() {
+        // A control for `ding`: one-shot plays already worked through the player.
+        for name in ["tone.ogg", "tone.mp3", "tone.flac"] {
+            let p = one_play(name);
+            let out = through_player(source(&Sound::File(fixture(name))).unwrap(), 22_050, p);
+            assert!(loud(&out) > p * 6 / 10, "{name}");
+        }
+    }
+
+    #[test]
+    fn ogg_and_low_rate_mp3_need_rodios_player_to_be_heard() {
+        // Tripwire. rodio 0.23's decoders report an empty first span for Vorbis and for MP3 at
+        // 24 kHz or below, and only `Player`'s queue reads past it: fed straight to rodio's
+        // converter (what direct mixer wiring does) these yield no samples at all. While this
+        // holds, sounds must go through `Player`. The day it fails, the parked surround rewire
+        // (docs/parking-lot.md) may be possible.
+        let rate = SampleRate::new(22_050).unwrap();
+        let cases: [(&str, Box<dyn Source + Send>); 4] = [
+            (
+                "looped tone.ogg",
+                looped(&Sound::File(fixture("tone.ogg"))).unwrap(),
+            ),
+            (
+                "looped tone.mp3",
+                looped(&Sound::File(fixture("tone.mp3"))).unwrap(),
+            ),
+            (
+                "one tone.ogg",
+                source(&Sound::File(fixture("tone.ogg"))).unwrap(),
+            ),
+            (
+                "one tone.mp3",
+                source(&Sound::File(fixture("tone.mp3"))).unwrap(),
+            ),
+        ];
+        // No samples at all, not merely quiet ones: the converter ends at once. Every case is
+        // checked before failing, so one change does not hide the others.
+        let produced: Vec<(&str, usize)> = cases
+            .into_iter()
+            .map(|(what, src)| {
+                let n = rodio::source::UniformSourceIterator::new(src, MONO, rate)
+                    .take(30_000)
+                    .count();
+                (what, n)
+            })
+            .filter(|&(_, n)| n > 0)
+            .collect();
+        assert!(produced.is_empty(), "now produce samples: {produced:?}");
+    }
+
+    #[test]
+    fn looped_files_keep_sounding_when_resampled() {
+        for name in ["tone.ogg", "tone.mp3", "tone.flac"] {
+            // one play at the output rate, a few samples over what the resampler makes
+            let p = one_play(name) * 48_000 / 22_050;
+            let out = through_player(looped(&Sound::File(fixture(name))).unwrap(), 48_000, 3 * p);
+            for seam in 1..3 {
+                // the 100 ms just after each seam; measured: about 3 500 loud samples
+                let count = loud(&out[seam * p..seam * p + 4_800]);
+                assert!(count > 2_500, "{name}: {count} loud after seam {seam}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_looped_wav_repeats_exactly() {
+        // A control: wav files looped before the fix too.
+        // write_wav's ramp repeats every 1 000 samples; 3 999 is not a multiple of that, so a loop
+        // that restarted off by a whole ramp would still show.
+        let path = write_wav("loop.wav", 3_999); // about 0.5 s at 8 kHz
+        let out: Vec<f32> = looped(&Sound::File(path.clone()))
+            .unwrap()
+            .take(3 * 3_999)
+            .collect();
+        let once: Vec<f32> = source(&Sound::File(path.clone())).unwrap().collect();
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(out[..3_999], once[..]);
+        assert_eq!(out[3_999..2 * 3_999], once[..]);
+        assert_eq!(out[2 * 3_999..], once[..]);
     }
 }

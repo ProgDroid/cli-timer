@@ -25,13 +25,19 @@ came from, and a pointer to a detail doc when there is one.
   that image, so move to a container or `ubuntu-24.04` then. `Swatinem/rust-cache` is only in
   `check.yml` now. 2026-10-22, agent-timer build (final review, ledger Task 8).
 - **Release archive names carry no version** (`cli-timer-<target>.zip`); add the tag if people keep
-  several. 2026-10-22, agent-timer build (ledger Task 8).
+  several. 2026-10-22, agent-timer build (ledger Task 8). **Declined 2026-10-28**: a version in the
+  archive's folder name changes every release, so a PATH entry set up for the last one keeps running
+  the old binary unnoticed, and fixed `releases/latest/download/<name>` links would end
+  (`superpowers/reviews/2026-10-28-hardening-batch-design-redteam.md`).
 - **Windows and Linux release binaries are x86_64 only**: no arm64 Linux or Windows builds, and
   macOS x86_64 is cross-built on an arm64 runner. 2026-10-22, agent-timer build (ledger Task 8).
 - **Leading `-` in other values**: a label or `ding` message starting with `-` now works (the `-l`
   of `remind` and the `ding` message take hyphen-leading values), but the full-screen timer's `-l`
   and `-s <FILE>` values do not. Add `allow_hyphen_values` there if it ever matters.
-  2026-10-22, agent-timer build (final review m4).
+  2026-10-22, agent-timer build (final review m4). **Declined 2026-10-28**: the full-screen `-l`
+  already takes `-l=-standup` and `-l-standup`, and `allow_hyphen_values` would turn
+  `-t 1m -l --help` into a timer labelled "--help"; a sound file named `-x.mp3` works as
+  `-s ./-x.mp3` (`superpowers/reviews/2026-10-28-hardening-batch-design-redteam.md`).
 - **Test helper duplication**: the WAV writer exists three times (`src/sound.rs`, `src/ding.rs`,
   `tests/cli.rs`), plus `json_lines`/`log_of`; the temp WAVs are never removed. A shared test module
   is not worth it yet. 2026-10-22, agent-timer build (final review m8).
@@ -65,10 +71,24 @@ came from, and a pointer to a detail doc when there is one.
   avoid its stderr line; compare it with the new release's, and drop the copy if the print is
   gone. `fit_channels` copies rodio 0.16's channel mapping because 0.23 leaves channels 3 and up
   silent; if the new release fills them (the last channel into every extra one), drop it.
-- **Surround channel-fill span length**: `FillChannels` (`src/sound.rs`) reports a widened span of
-  `len / from * to` samples, but rodio 0.23 caps spans at 32 768 samples, which is not a whole
-  number of 6-channel frames, so a long widened span on a 5.1 output can be cut mid-frame. Only
-  matters when the device's sample rate differs from the file's and a stereo `-s` file has packets
-  over 5 461 frames (mp3/wav use 1 152, default FLAC/Vorbis 4 096 or fewer); inaudible for the mono
-  built-ins. Hardening: report `(len / from).min(32768 / to) * to`. 2026-10-27, v0.2.2 final fix
-  re-review.
+  Since v0.2.3 (2026-10-28) looped files use rodio's `LoopedDecoder` (`sound::looped`); re-check it
+  survives the move. The tests that read sound through `through_player` (rodio's real `Player` path
+  with no device) are the oracle; the tripwire `ogg_and_low_rate_mp3_need_rodios_player_to_be_heard`
+  says when handing sounds to the mixer directly becomes safe (see the surround entry below).
+- **Surround output rewire**: on a 5.1/7.1 output, stereo and multichannel `-s` files play with
+  their channels rotated. `Player::connect_new` adds the player to the mixer before anything is
+  appended, so rodio sets up its conversion from an empty one-channel source and converts the first
+  512 samples as mono; 512 is not whole 6-channel frames, so every later frame is shifted two
+  channels (a stereo file plays its left channel only from back-left). The mono built-ins look fine
+  because every channel carries the same sample. The fix would hand sounds to the mixer directly
+  with an own end signal, plus the span cap below; but today that silences Ogg and low-rate MP3,
+  looped and one-shot alike (pinned by the tripwire test
+  `ogg_and_low_rate_mp3_need_rodios_player_to_be_heard`), and rodio's next release may remove span
+  lengths altogether. Nobody here has a surround output. Parked 2026-10-28, hardening-batch red
+  teams: `superpowers/specs/2026-10-28-hardening-batch-design.md`,
+  `superpowers/reviews/2026-10-28-hardening-batch-design-redteam.md` and `-redteam-2.md`.
+  Folded in, the span cap (2026-10-27, v0.2.2 final fix re-review): `FillChannels` reports a widened
+  span of `len / from * to` samples, but rodio's `UniformSourceIterator` (`uniform.rs:55`) cuts
+  spans at 32 768 samples, which is not whole 6-channel frames, so a long widened span on a 5.1
+  output can be cut mid-frame when the rates differ. With the current wiring the cap changes
+  nothing (measured); it matters only after a rewire: report `(len / from).min(32768 / to) * to`.

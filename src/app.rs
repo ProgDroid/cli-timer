@@ -6,7 +6,7 @@ use ratatui::{
     style::{Color, Style},
     widgets::{Block, Borders, Paragraph},
 };
-use rodio::{Player, Source};
+use rodio::Player;
 use std::{error, path::PathBuf, sync::mpsc::Sender, thread, time::Duration as StdDuration};
 
 pub type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
@@ -205,9 +205,7 @@ impl App {
     /// # Errors
     /// Returns an error if the sound file cannot be opened or decoded.
     pub fn start_sound(&mut self) -> Result<()> {
-        let source = sound::source(&self.sound)?
-            .repeat_infinite()
-            .fade_in(StdDuration::from_millis(500));
+        let source = sound::alarm_loop(&self.sound)?;
 
         let (tx, rx) = std::sync::mpsc::channel();
 
@@ -223,10 +221,7 @@ impl App {
             };
 
             let player = Player::connect_new(output.mixer());
-            player.append(sound::fit_channels(
-                Box::new(source),
-                output.config().channel_count(),
-            ));
+            player.append(sound::fit_channels(source, output.config().channel_count()));
 
             // Blocks until the app sends a stop, or drops the sender on restart or exit; either
             // way the answer is the same, so the result is not looked at.
